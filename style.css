@@ -1,0 +1,97 @@
+/* Le ciel en direct — mêmes couleurs et mêmes polices que « Rejouer le ciel ». */
+:root {
+  --fond: #e9edf1;
+  --panneau: #ffffff;
+  --encre: #1e2a38;
+  --encre-douce: #5b6878;
+  --filet: #d5dbe2;
+  --normal: #2f6fb2;
+  --anormal: #d9601a;
+  --douteux: #8a6fb5;
+  --inconnu: #a3adb8;
+  --focus: #2f6fb2;
+  --mer: #dde5ec;
+  --terre: #f6f7f9;
+  --limite: #b9c3ce;
+  --texte: "Overpass", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --chiffres: "Overpass Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --fond: #10161e; --panneau: #17202b; --encre: #e6ebf0; --encre-douce: #9aa7b6; --filet: #2a3644;
+    --normal: #5b9bdb; --anormal: #f07f36; --douteux: #a891d6; --inconnu: #5f6b78;
+    --focus: #8fbcef; --mer: #0b1118; --terre: #1a2330; --limite: #34424f; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --fond: #10161e; --panneau: #17202b; --encre: #e6ebf0; --encre-douce: #9aa7b6; --filet: #2a3644;
+  --normal: #5b9bdb; --anormal: #f07f36; --douteux: #a891d6; --inconnu: #5f6b78;
+  --focus: #8fbcef; --mer: #0b1118; --terre: #1a2330; --limite: #34424f; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  font-family: var(--texte); color: var(--encre); background: var(--fond);
+  display: grid; grid-template-rows: auto 1fr auto; min-height: 100vh; font-size: 15px; line-height: 1.45;
+}
+a { color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.visuel-cache { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+.entete {
+  display: flex; flex-wrap: wrap; gap: 12px 32px; align-items: end; justify-content: space-between;
+  padding: 16px 20px 12px; background: var(--panneau); border-bottom: 1px solid var(--filet);
+}
+.titre h1 { margin: 0; font-size: 1.6rem; font-weight: 800; letter-spacing: -0.01em; }
+.sous-titre { margin: 2px 0 0; color: var(--encre-douce); max-width: 70ch; }
+.statut {
+  font-family: var(--chiffres); font-size: 0.85rem; color: var(--encre-douce);
+  border: 1px solid var(--filet); border-radius: 6px; padding: 6px 10px; background: var(--fond);
+}
+.statut.vieux { color: var(--anormal); border-color: var(--anormal); }
+
+.scene { display: grid; grid-template-columns: 1fr 320px; min-height: 0; }
+.carte-cadre { position: relative; min-height: 420px; }
+#carte { position: absolute; inset: 0; background: var(--mer); }
+.leaflet-container { background: var(--mer); font-family: var(--texte); }
+.leaflet-control-attribution { background: color-mix(in srgb, var(--panneau) 85%, transparent) !important; color: var(--encre-douce) !important; }
+.leaflet-control-attribution a { color: var(--encre-douce) !important; }
+.leaflet-bar a { background: var(--panneau); color: var(--encre); border-color: var(--filet); }
+.recherche { position: absolute; top: 12px; left: 56px; z-index: 500; }
+.recherche input {
+  font: inherit; color: var(--encre); background: var(--panneau); border: 1px solid var(--filet);
+  border-radius: 6px; padding: 6px 10px; width: min(260px, 60vw); box-shadow: 0 1px 4px rgb(0 0 0 / 0.12);
+}
+
+.panneau {
+  background: var(--panneau); border-left: 1px solid var(--filet); padding: 16px 18px; overflow-y: auto;
+  display: grid; align-content: start; gap: 20px;
+}
+.panneau h2 { margin: 0 0 6px; font-size: 1rem; font-weight: 800; }
+.aide { margin: 0 0 8px; color: var(--encre-douce); font-size: 0.88rem; }
+.legende { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 0.9rem; }
+.legende label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.legende .compte { margin-left: auto; font-family: var(--chiffres); color: var(--encre-douce); }
+.legende-forme { margin-top: 10px; }
+.legende-forme li { display: flex; align-items: center; gap: 8px; color: var(--encre-douce); font-size: 0.85rem; }
+.pastille { width: 11px; height: 11px; border-radius: 50%; display: inline-block; flex: none; }
+.pastille.plein { background: var(--encre); }
+.pastille.estime { border: 2px dashed var(--encre); opacity: 0.6; }
+.fiche dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 0.9rem; }
+.fiche dt { color: var(--encre-douce); }
+.fiche dd { margin: 0; font-family: var(--chiffres); }
+.verdict { font-weight: 700; }
+.aide-bas p { margin: 0 0 8px; color: var(--encre-douce); font-size: 0.82rem; }
+
+.pied { padding: 8px 20px; font-size: 0.8rem; color: var(--encre-douce); background: var(--panneau); border-top: 1px solid var(--filet); }
+
+@media (max-width: 820px) {
+  html, body { height: auto; }
+  .carte-cadre { height: 62vh; }
+  .scene { grid-template-columns: 1fr; grid-template-rows: minmax(60vh, 1fr) auto; }
+  .panneau { border-left: 0; border-top: 1px solid var(--filet); }
+  .entete { padding: 12px 16px; }
+  .recherche { left: 52px; right: 16px; }
+}

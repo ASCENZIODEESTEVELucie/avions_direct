@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Le ciel en direct — DST Airlines</title>
+<meta name="description" content="Les avions vus par ma collecte ADS-B, mis à jour toutes les 16 minutes ; entre deux photos, ils avancent à l'estime le long de leur chemin habituel.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Overpass:wght@400;600;800&family=Overpass+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="vendor/leaflet.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="entete">
+  <div class="titre">
+    <h1>Le ciel en direct</h1>
+    <p class="sous-titre">Les avions vus par ma collecte, photographiés toutes les 8 minutes et publiés toutes les 16. Entre deux photos, chaque avion avance à l'estime, le long du chemin que suivent habituellement les vols de sa route.</p>
+  </div>
+  <div class="statut" id="statut" role="status" aria-live="polite">Chargement…</div>
+</header>
+
+<main class="scene">
+  <section class="carte-cadre" aria-label="Carte des vols en cours">
+    <div id="carte"></div>
+    <form class="recherche" id="recherche" role="search">
+      <label for="champ-recherche" class="visuel-cache">Chercher un vol</label>
+      <input id="champ-recherche" list="liste-indicatifs" placeholder="Chercher un vol (ex. AFR1234)" autocomplete="off">
+      <datalist id="liste-indicatifs"></datalist>
+    </form>
+  </section>
+
+  <aside class="panneau" aria-label="Légende et vol choisi">
+    <section>
+      <h2>Ce que disent les couleurs</h2>
+      <p class="aide">Le verdict de ma base pour chaque vol en cours : sa durée estimée, comparée au seuil de sa route.</p>
+      <ul class="legende" id="legende"></ul>
+      <ul class="legende legende-forme">
+        <li><span class="pastille plein" aria-hidden="true"></span> position reçue il y a moins de 2 min</li>
+        <li><span class="pastille estime" aria-hidden="true"></span> position estimée (plus de photo récente)</li>
+      </ul>
+    </section>
+    <section class="fiche" id="fiche" hidden>
+      <h2 id="fiche-titre">Vol</h2>
+      <dl id="fiche-details"></dl>
+      <p class="aide" id="fiche-note"></p>
+    </section>
+    <section class="aide-bas">
+      <p>Ce que la carte ne montre jamais : les avions militaires, protégés (PIA, LADD) et les véhicules au sol, retirés dès la collecte.</p>
+      <p>Pourquoi 16 minutes : la page ne lit jamais ma base. La VM y écrit, puis dépose une photo chez Cloudflare, que tous les visiteurs lisent. Cinquante visiteurs ne réveillent donc pas la base.</p>
+    </section>
+  </aside>
+</main>
+
+<footer class="pied">
+  Données : collecte ADS-B de DST Airlines, positions <a href="https://www.adsb.lol/">ADSB.lol</a> (licence <a href="https://opendatacommons.org/licenses/odbl/1-0/">ODbL 1.0</a>) ·
+  Fond : <a href="https://www.naturalearthdata.com/">Natural Earth</a> · <a href="https://leafletjs.com">Leaflet</a> ·
+  Lucie ASCENZIO DE ESTEVE
+</footer>
+
+<script src="vendor/leaflet.js"></script>
+<script src="config.js"></script>
+<script src="direct.js"></script>
+</body>
+</html>
