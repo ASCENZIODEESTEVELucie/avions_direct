@@ -1,0 +1,174 @@
+/* Rejouer le ciel — une carte calme, un tableau des départs pour le vol choisi. */
+:root {
+  --fond: #e9edf1;
+  --panneau: #ffffff;
+  --encre: #1e2a38;
+  --encre-douce: #5b6878;
+  --filet: #d5dbe2;
+  --a-l-heure: #2f6fb2;
+  --en-retard: #d9601a;
+  --inconnu: #a3adb8;
+  --tableau: #18212e;
+  --tableau-ligne: #222d3c;
+  --ambre: #f2b33d;
+  --ambre-doux: #b98b3a;
+  --focus: #2f6fb2;
+  --mer: #dde5ec;
+  --terre: #f6f7f9;
+  --limite: #b9c3ce;
+  --texte: "Overpass", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --chiffres: "Overpass Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --fond: #10161e; --panneau: #17202b; --encre: #e6ebf0; --encre-douce: #9aa7b6; --filet: #2a3644;
+    --a-l-heure: #5b9bdb; --en-retard: #f07f36; --inconnu: #5f6b78; --tableau: #0c1219; --tableau-ligne: #151d28;
+    --focus: #8fbcef; --mer: #0b1118; --terre: #1a2330; --limite: #34424f; color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  font-family: var(--texte); color: var(--encre); background: var(--fond);
+  display: grid; grid-template-rows: auto 1fr auto; min-height: 100vh; font-size: 15px; line-height: 1.45;
+}
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.visuel-cache { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+/* En-tête */
+.entete {
+  display: flex; flex-wrap: wrap; gap: 12px 32px; align-items: end; justify-content: space-between;
+  padding: 16px 20px 12px; background: var(--panneau); border-bottom: 1px solid var(--filet);
+}
+.titre h1 { margin: 0; font-size: 1.6rem; font-weight: 800; letter-spacing: -0.01em; }
+.sous-titre { margin: 2px 0 0; color: var(--encre-douce); max-width: 62ch; }
+.commandes { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: end; }
+.champ { display: grid; gap: 4px; font-size: 0.85rem; color: var(--encre-douce); }
+select, input[type="search"], .recherche input {
+  font: inherit; color: var(--encre); background: var(--panneau); border: 1px solid var(--filet);
+  border-radius: 6px; padding: 6px 8px;
+}
+.lentilles { border: 0; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0; }
+.lentilles legend { font-size: 0.85rem; color: var(--encre-douce); margin-bottom: 4px; padding: 0; }
+.lentilles button {
+  font: inherit; font-size: 0.9rem; color: var(--encre); background: transparent; cursor: pointer;
+  border: 1px solid var(--filet); padding: 6px 12px; margin-left: -1px;
+}
+.lentilles button:first-of-type { border-radius: 6px 0 0 6px; margin-left: 0; }
+.lentilles button:last-of-type { border-radius: 0 6px 6px 0; }
+.lentilles button[hidden] { display: none; }
+.lentilles button[aria-pressed="true"] { background: var(--encre); color: var(--panneau); border-color: var(--encre); }
+
+/* Scène : carte + panneau */
+.scene { display: grid; grid-template-columns: minmax(0, 1fr) 400px; min-height: 0; }
+.carte-cadre { position: relative; min-height: 420px; }
+#carte { position: absolute; inset: 0; background: var(--mer); }
+.leaflet-container { font-family: var(--texte); background: var(--mer); }
+.legende {
+  position: absolute; left: 12px; bottom: 12px; z-index: 500; background: var(--panneau); color: var(--encre);
+  border: 1px solid var(--filet); border-radius: 8px; padding: 8px 12px; font-size: 0.85rem; display: grid; gap: 4px;
+}
+.legende .pastille { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; vertical-align: -1px; }
+.recherche { position: absolute; right: 12px; top: 12px; z-index: 500; }
+.recherche input { width: 230px; }
+
+.panneau { background: var(--panneau); border-left: 1px solid var(--filet); display: flex; flex-direction: column; min-height: 0; }
+.onglets { display: flex; border-bottom: 1px solid var(--filet); }
+.onglets button {
+  flex: 1; font: inherit; font-size: 0.9rem; background: none; border: 0; color: var(--encre-douce);
+  padding: 12px 8px; cursor: pointer; border-bottom: 2px solid transparent;
+}
+.onglets button[aria-selected="true"] { color: var(--encre); border-bottom-color: var(--encre); font-weight: 600; }
+.volet { padding: 16px 18px 24px; overflow-y: auto; }
+.vide { color: var(--encre-douce); }
+
+/* Le vol : en-tête de route */
+.route { display: flex; align-items: baseline; gap: 10px; margin: 0 0 2px; }
+.route .code { font-family: var(--chiffres); font-weight: 700; font-size: 1.9rem; letter-spacing: 0.02em; }
+.route .fleche { color: var(--encre-douce); font-size: 1.3rem; }
+.identite { margin: 0 0 14px; color: var(--encre-douce); }
+
+/* Le tableau des départs : l'élément fort de la page */
+.tableau {
+  background: var(--tableau); border-radius: 8px; padding: 6px; margin: 0 0 18px;
+  font-family: var(--chiffres); color: var(--ambre);
+}
+.tableau .ligne {
+  display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px;
+  padding: 6px 8px 6px 10px; background: var(--tableau-ligne); border-radius: 4px; margin: 3px 0;
+}
+.tableau .etiquette { font-family: var(--texte); color: #c9d2dc; font-size: 0.82rem; }
+.tableau .valeur {   /* un volet de tableau des départs : deux moitiés séparées par une fente */
+  font-size: 1.15rem; font-weight: 700; letter-spacing: 0.06em; padding: 3px 9px 1px; border-radius: 3px;
+  background: linear-gradient(#2a3546 0 49%, #0a0f15 49% 51%, #222c3a 51% 100%);
+}
+.tableau .valeur.retard { color: #ff9a52; }
+.tableau .valeur.discret { color: var(--ambre-doux); }
+
+/* Les trois regards */
+.regard { border-top: 1px solid var(--filet); padding: 14px 0 6px; }
+.regard h3 { margin: 0 0 2px; font-size: 1rem; }
+.regard .quand { margin: 0 0 10px; color: var(--encre-douce); font-size: 0.85rem; }
+.verdict { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; margin: 2px 0 8px; }
+.verdict .pastille { width: 12px; height: 12px; border-radius: 50%; }
+.faits { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 0.9rem; }
+.faits dt { color: var(--encre-douce); }
+.faits dd { margin: 0; font-size: 0.9rem; }
+.jauge { position: relative; height: 10px; background: var(--fond); border-radius: 5px; margin: 6px 0 4px; }
+.jauge .rempli { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 5px; }
+.jauge .repere { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--encre); }
+.jauge-legende { display: flex; justify-content: space-between; font-size: 0.78rem; color: var(--encre-douce); }
+.accord { margin-top: 14px; padding: 10px 12px; border-radius: 6px; background: var(--fond); font-size: 0.9rem; }
+
+/* La journée et le mémoire */
+.mesures { display: grid; gap: 14px; }
+.mesure h3 { margin: 0 0 2px; font-size: 1rem; }
+.mesure p { margin: 0; color: var(--encre-douce); font-size: 0.88rem; }
+.mesure .chiffre { font-family: var(--chiffres); font-weight: 700; font-size: 1.25rem; color: var(--encre); }
+.note { color: var(--encre-douce); font-size: 0.85rem; border-top: 1px solid var(--filet); padding-top: 10px; margin-top: 16px; }
+.memoire { list-style: none; padding: 0; margin: 0; display: grid; gap: 16px; }
+.memoire li { border-left: 3px solid var(--filet); padding-left: 12px; }
+.memoire .valeur { font-weight: 700; font-size: 1.05rem; }
+.memoire .detail { color: var(--encre-douce); font-size: 0.88rem; }
+
+/* La barre du temps */
+.temps {
+  display: grid; grid-template-columns: auto auto 1fr auto auto; gap: 14px; align-items: center;
+  padding: 10px 20px; background: var(--panneau); border-top: 1px solid var(--filet);
+}
+.lecture {
+  width: 40px; height: 40px; border-radius: 50%; border: 0; background: var(--encre); color: var(--panneau);
+  font-size: 1rem; cursor: pointer;
+}
+.horloge { font-family: var(--chiffres); font-weight: 700; font-size: 1.3rem; min-width: 9ch; }
+#curseur { width: 100%; accent-color: var(--encre); }
+.vitesse { grid-auto-flow: column; align-items: center; }
+.compte { color: var(--encre-douce); font-size: 0.85rem; min-width: 16ch; text-align: right; }
+.erreur {
+  position: fixed; inset: auto 20px 80px 20px; z-index: 1000; background: var(--panneau); color: var(--encre);
+  border: 1px solid var(--en-retard); border-radius: 8px; padding: 12px 16px; max-width: 70ch; margin: 0 auto;
+}
+
+@media (max-width: 900px) {
+  body { display: block; }
+  .scene { display: block; }
+  .carte-cadre { height: 58vh; }
+  .temps { position: sticky; bottom: 0; z-index: 900; }
+  .lentilles { display: grid; grid-template-columns: 1fr 1fr; }
+  .lentilles legend { grid-column: 1 / -1; }
+  .lentilles button, .lentilles button:first-of-type, .lentilles button:last-of-type { border-radius: 0; margin: 0 -1px -1px 0; }
+  .panneau { border-left: 0; border-top: 1px solid var(--filet); }
+  .entete { padding: 12px 16px; }
+  .temps { grid-template-columns: auto auto 1fr; padding: 10px 16px; }
+  .vitesse, .compte { display: none; }
+  .recherche input { width: 170px; }
+  .lentilles button { font-size: 0.82rem; padding: 6px 8px; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+
+/* Les commandes de Leaflet aux couleurs de la page (clair et sombre) */
+.leaflet-control-attribution { background: var(--panneau) !important; color: var(--encre-douce); }
+.leaflet-control-attribution a { color: var(--a-l-heure); }
+.leaflet-bar a, .leaflet-bar a:hover { background: var(--panneau); color: var(--encre); border-bottom-color: var(--filet); }

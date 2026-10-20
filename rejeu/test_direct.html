@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Test du direct</title>
+<link rel="stylesheet" href="vendor/leaflet.css">
+<style>
+:root {
+  --fond: #e9edf1; --panneau: #ffffff; --encre: #1e2a38; --encre-douce: #5b6878; --filet: #d5dbe2;
+  --vol: #2f6fb2; --sol: #8a96a3; --estime: #9b6fc6; --ok: #2e7d4f; --ko: #c0392b; --attente: #b98b3a;
+  --mer: #dde5ec; --terre: #f6f7f9; --limite: #b9c3ce;
+  --texte: "Segoe UI", system-ui, -apple-system, sans-serif;
+  --chiffres: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --fond: #10161e; --panneau: #17202b; --encre: #e6ebf0; --encre-douce: #9aa7b6; --filet: #2a3644;
+    --vol: #5b9bdb; --sol: #6b7886; --estime: #b58fe0; --ok: #4fbf7f; --ko: #f07167; --attente: #e0b062;
+    --mer: #0b1118; --terre: #1a2330; --limite: #34424f; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --fond: #10161e; --panneau: #17202b; --encre: #e6ebf0; --encre-douce: #9aa7b6; --filet: #2a3644;
+  --vol: #5b9bdb; --sol: #6b7886; --estime: #b58fe0; --ok: #4fbf7f; --ko: #f07167; --attente: #e0b062;
+  --mer: #0b1118; --terre: #1a2330; --limite: #34424f; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { font-family: var(--texte); color: var(--encre); background: var(--fond); font-size: 15px; line-height: 1.45;
+  display: grid; grid-template-rows: auto 1fr; min-height: 100vh; }
+header { display: flex; flex-wrap: wrap; gap: 12px 28px; align-items: end; justify-content: space-between;
+  padding: 14px 20px 12px; background: var(--panneau); border-bottom: 1px solid var(--filet); }
+h1 { margin: 0; font-size: 1.45rem; font-weight: 800; }
+.sous-titre { margin: 2px 0 0; color: var(--encre-douce); max-width: 64ch; }
+.commandes { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: end; }
+label { display: grid; gap: 4px; font-size: 0.85rem; color: var(--encre-douce); }
+select, button { font: inherit; color: var(--encre); background: var(--panneau); border: 1px solid var(--filet); border-radius: 6px; padding: 6px 10px; }
+button.principal { background: var(--encre); color: var(--panneau); border-color: var(--encre); cursor: pointer; min-width: 9ch; }
+main { display: grid; grid-template-columns: minmax(0, 1fr) 380px; min-height: 0; }
+#carte { min-height: 420px; background: var(--mer); position: relative; }
+.leaflet-container { background: var(--mer); font-family: var(--texte); }
+aside { background: var(--panneau); border-left: 1px solid var(--filet); overflow-y: auto; padding: 16px 18px 24px; }
+h2 { font-size: 1rem; margin: 0 0 8px; }
+section + section { border-top: 1px solid var(--filet); margin-top: 16px; padding-top: 14px; }
+.verdicts { display: grid; gap: 10px; }
+.verdict { display: grid; grid-template-columns: 14px 1fr; gap: 2px 10px; align-items: start; }
+.verdict .pastille { width: 12px; height: 12px; border-radius: 50%; margin-top: 5px; background: var(--attente); }
+.verdict .pastille.ok { background: var(--ok); } .verdict .pastille.ko { background: var(--ko); }
+.verdict strong { display: block; } .verdict span { color: var(--encre-douce); font-size: 0.88rem; }
+.chiffres { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.chiffre b { display: block; font-family: var(--chiffres); font-size: 1.25rem; }
+.chiffre span { color: var(--encre-douce); font-size: 0.82rem; }
+table { width: 100%; border-collapse: collapse; font-size: 0.82rem; font-family: var(--chiffres); }
+th, td { text-align: left; padding: 3px 4px; border-bottom: 1px solid var(--filet); }
+th { font-family: var(--texte); color: var(--encre-douce); font-weight: 600; }
+td.ko { color: var(--ko); }
+.fiche dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; font-size: 0.9rem; }
+.fiche dt { color: var(--encre-douce); } .fiche dd { margin: 0; font-family: var(--chiffres); }
+.vide { color: var(--encre-douce); font-size: 0.9rem; }
+.legende { position: absolute; left: 12px; bottom: 12px; z-index: 500; background: var(--panneau); border: 1px solid var(--filet);
+  border-radius: 8px; padding: 8px 12px; font-size: 0.82rem; display: grid; gap: 3px; }
+.legende i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; vertical-align: -1px; }
+.note { color: var(--encre-douce); font-size: 0.82rem; }
+.leaflet-control-attribution { background: var(--panneau) !important; color: var(--encre-douce); }
+.leaflet-control-attribution a { color: var(--vol); }
+.leaflet-bar a, .leaflet-bar a:hover { background: var(--panneau); color: var(--encre); border-bottom-color: var(--filet); }
+@media (max-width: 900px) {
+  main { display: block; } #carte { height: 55vh; } aside { border-left: 0; border-top: 1px solid var(--filet); }
+  header { padding: 12px 16px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Test du direct</h1>
+    <p class="sous-titre">La page interroge ADSB.lol depuis votre navigateur, sans serveur intermédiaire. Elle répond à trois questions : est-ce autorisé, à quelle fréquence, et avec quelle fraîcheur ?</p>
+  </div>
+  <div class="commandes">
+    <label>Zone
+      <select id="zone">
+        <option value="48.8566,2.3522">Paris</option>
+        <option value="51.4700,-0.4543">Londres</option>
+        <option value="50.0379,8.5622">Francfort</option>
+        <option value="40.7128,-74.0060">New York</option>
+        <option value="33.9416,-118.4085">Los Angeles</option>
+      </select>
+    </label>
+    <label>Rayon
+      <select id="rayon">
+        <option value="50">50 milles</option>
+        <option value="100" selected>100 milles</option>
+        <option value="250">250 milles</option>
+      </select>
+    </label>
+    <label>Un appel toutes les
+      <select id="intervalle">
+        <option value="5">5 s</option>
+        <option value="10" selected>10 s</option>
+        <option value="30">30 s</option>
+        <option value="60">60 s</option>
+      </select>
+    </label>
+    <button id="lancer" class="principal" type="button">Lancer</button>
+  </div>
+</header>
+
+<main>
+  <div id="carte">
+    <div class="legende" aria-hidden="true">
+      <div><i style="background:var(--vol)"></i>en vol, position mesurée</div>
+      <div><i style="background:var(--estime)"></i>position par multilatération</div>
+      <div><i style="background:var(--sol)"></i>au sol</div>
+    </div>
+  </div>
+  <aside>
+    <section>
+      <h2>Les trois réponses</h2>
+      <div class="verdicts">
+        <div class="verdict"><div class="pastille" id="v-cors"></div><div><strong>Appel depuis une page web</strong><span id="t-cors">pas encore testé</span></div></div>
+        <div class="verdict"><div class="pastille" id="v-freq"></div><div><strong>Fréquence tenue</strong><span id="t-freq">pas encore testé</span></div></div>
+        <div class="verdict"><div class="pastille" id="v-frais"></div><div><strong>Fraîcheur des positions</strong><span id="t-frais">pas encore testé</span></div></div>
+      </div>
+    </section>
+    <section>
+      <h2>En chiffres</h2>
+      <div class="chiffres">
+        <div class="chiffre"><b id="c-appels">0</b><span>appels réussis</span></div>
+        <div class="chiffre"><b id="c-erreurs">0</b><span>erreurs (dont 429)</span></div>
+        <div class="chiffre"><b id="c-latence">–</b><span>temps de réponse médian</span></div>
+        <div class="chiffre"><b id="c-avions">–</b><span>avions affichés</span></div>
+        <div class="chiffre"><b id="c-age">–</b><span>âge médian des positions</span></div>
+        <div class="chiffre"><b id="c-caches">–</b><span>masqués (LADD, PIA, militaires)</span></div>
+      </div>
+    </section>
+    <section class="fiche">
+      <h2>L'avion choisi</h2>
+      <div id="fiche"><p class="vide">Cliquez sur un avion de la carte.</p></div>
+    </section>
+    <section>
+      <h2>Journal des appels</h2>
+      <table><thead><tr><th>heure</th><th>statut</th><th>durée</th><th>avions</th></tr></thead><tbody id="journal"></tbody></table>
+      <p class="note">Entre deux appels, chaque avion avance selon sa vitesse et son cap : c'est la position estimée de la carte, comme la colonne <code>position_estimee</code> du schéma v3. Les avions LADD, PIA et militaires sont masqués, comme dans le collecteur. La page s'arrête seule après 3 erreurs de suite et ralentit d'elle-même sur un 429. Données : ADSB.lol (ODbL).</p>
+    </section>
+  </aside>
+</main>
+
+<script src="vendor/leaflet.js"></script>
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const NM = 1.852;                         // un mille nautique en km, un nœud en km/h
+const etat = { avions: new Map(), choisi: null, minuteur: null, actif: false, intervalle: 10,
+  latences: [], appels: 0, erreurs: 0, n429: 0, consecutives: 0, corsOk: null, plusPetitSans429: null };
+
+/* ── La carte ─────────────────────────────────────────────────────────────── */
+const carte = L.map('carte', { worldCopyJump: true }).setView([48.8566, 2.3522], 7);
+carte.attributionControl.setPrefix(false);
+carte.attributionControl.addAttribution('Avions : <a href="https://adsb.lol">ADSB.lol</a> (ODbL) · fond : <a href="https://www.naturalearthdata.com/">Natural Earth</a> · <a href="https://leafletjs.com">Leaflet</a>');
+const couleur = (cle) => getComputedStyle(document.documentElement).getPropertyValue(cle).trim();
+fetch('vendor/fond_carte.json').then((r) => r.json()).then((fond) => {
+  const rendu = L.canvas({ padding: 0.5 });
+  L.geoJSON(fond.terre, { style: () => ({ renderer: rendu, interactive: false, fillColor: couleur('--terre'), fillOpacity: 1, stroke: false }) }).addTo(carte);
+  L.geoJSON(fond.frontieres, { style: () => ({ renderer: rendu, interactive: false, color: couleur('--limite'), weight: 1.2, fill: false }) }).addTo(carte);
+}).catch(() => {});
+
+const calque = document.createElement('canvas');
+Object.assign(calque.style, { position: 'absolute', inset: '0', zIndex: 450, pointerEvents: 'none' });
+carte.getContainer().appendChild(calque);
+const ctx = calque.getContext('2d');
+function taille() {
+  const r = carte.getContainer().getBoundingClientRect(), p = devicePixelRatio || 1;
+  calque.width = r.width * p; calque.height = r.height * p;
+  calque.style.width = r.width + 'px'; calque.style.height = r.height + 'px';
+  ctx.setTransform(p, 0, 0, p, 0, 0);
+}
+new ResizeObserver(taille).observe(carte.getContainer());
+taille();
+
+// Position estimée maintenant : on part de la dernière position mesurée et on avance
+// selon la vitesse sol et la route (approximation plane, suffisante sur quelques minutes).
+function positionMaintenant(a, maintenant) {
+  if (a.sol || !a.gs || a.track == null) return [a.lat, a.lon, 0];
+  const dt = (maintenant - a.tMesure) / 3600000;               // heures écoulées depuis la mesure
+  const d = a.gs * NM * dt;                                     // km parcourus
+  const cap = a.track * Math.PI / 180;
+  const lat = a.lat + (d * Math.cos(cap)) / 111.32;
+  const lon = a.lon + (d * Math.sin(cap)) / (111.32 * Math.cos(a.lat * Math.PI / 180));
+  return [lat, lon, d];
+}
+
+function dessiner() {
+  const r = carte.getContainer().getBoundingClientRect();
+  ctx.clearRect(0, 0, r.width, r.height);
+  const maintenant = Date.now();
+  const cVol = couleur('--vol'), cSol = couleur('--sol'), cEst = couleur('--estime'), cEncre = couleur('--encre');
+  for (const a of etat.avions.values()) {
+    const [lat, lon] = positionMaintenant(a, maintenant);
+    const p = carte.latLngToContainerPoint([lat, lon]);
+    if (p.x < -20 || p.y < -20 || p.x > r.width + 20 || p.y > r.height + 20) continue;
+    a.ecran = p;
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.fillStyle = a.sol ? cSol : (a.mlat ? cEst : cVol);
+    if (a.sol || a.track == null) {
+      ctx.beginPath(); ctx.arc(0, 0, 3, 0, 2 * Math.PI); ctx.fill();
+    } else {
+      ctx.rotate(a.track * Math.PI / 180);                    // 0° = nord, sens horaire, comme sur l'écran
+      ctx.beginPath(); ctx.moveTo(0, -7); ctx.lineTo(4.5, 5); ctx.lineTo(0, 2.5); ctx.lineTo(-4.5, 5); ctx.closePath(); ctx.fill();
+    }
+    if (etat.choisi === a.hex) {
+      ctx.rotate(-(a.track || 0) * Math.PI / 180);
+      ctx.strokeStyle = cEncre; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, 11, 0, 2 * Math.PI); ctx.stroke();
+    }
+    ctx.restore();
+  }
+  if (etat.choisi) afficherFiche();
+  requestAnimationFrame(dessiner);
+}
+requestAnimationFrame(dessiner);
+
+carte.on('click', (e) => {
+  let meilleur = null, dMin = 14;
+  for (const a of etat.avions.values()) {
+    if (!a.ecran) continue;
+    const d = Math.hypot(a.ecran.x - e.containerPoint.x, a.ecran.y - e.containerPoint.y);
+    if (d < dMin) { dMin = d; meilleur = a.hex; }
+  }
+  etat.choisi = meilleur;
+  if (!meilleur) $('fiche').innerHTML = '<p class="vide">Cliquez sur un avion de la carte.</p>';
+});
+
+let derniereFiche = 0;
+function afficherFiche() {
+  if (Date.now() - derniereFiche < 250) return;               // pas besoin de réécrire à chaque image
+  derniereFiche = Date.now();
+  const a = etat.avions.get(etat.choisi);
+  if (!a) { $('fiche').innerHTML = '<p class="vide">Cet avion n\'est plus dans la zone.</p>'; return; }
+  const [, , d] = positionMaintenant(a, Date.now());
+  const age = ((Date.now() - a.tMesure) / 1000).toFixed(0);
+  const lignes = [
+    ['indicatif', a.flight || '—'], ['immatriculation', a.r || '—'], ['type', a.t || '—'],
+    ['altitude', a.sol ? 'au sol' : (a.alt != null ? Math.round(a.alt * 0.3048).toLocaleString('fr-FR') + ' m' : '—')],
+    ['vitesse sol', a.gs ? Math.round(a.gs * NM) + ' km/h' : '—'],
+    ['vent à bord', a.ws != null ? Math.round(a.ws * NM) + ' km/h' : '—'],
+    ['source', a.mlat ? 'multilatération' : 'ADS-B'],
+    ['mesurée il y a', age + ' s'],
+    ['avancée estimée', d ? d.toFixed(1) + ' km' : '—'],
+  ];
+  $('fiche').innerHTML = '<dl>' + lignes.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('') + '</dl>';
+}
+
+/* ── Les appels ───────────────────────────────────────────────────────────── */
+const mediane = (v) => { if (!v.length) return null; const s = [...v].sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+function pastille(id, classe, texte) { $('v-' + id).className = 'pastille ' + (classe || ''); $('t-' + id).textContent = texte; }
+
+function journaliser(statut, duree, n, ko) {
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td>${new Date().toLocaleTimeString('fr-FR')}</td><td class="${ko ? 'ko' : ''}">${statut}</td><td>${duree != null ? duree + ' ms' : '—'}</td><td>${n ?? '—'}</td>`;
+  $('journal').prepend(tr);
+  while ($('journal').children.length > 30) $('journal').lastChild.remove();
+}
+
+async function appeler() {
+  const [la, lo] = $('zone').value.split(',');
+  const url = `https://api.adsb.lol/v2/point/${la}/${lo}/${$('rayon').value}`;
+  const t0 = performance.now();
+  let rep;
+  try {
+    rep = await fetch(url, { cache: 'no-store' });
+  } catch (e) {
+    // Une erreur réseau ici, sans statut HTTP, est presque toujours un refus CORS du navigateur.
+    etat.erreurs++; etat.consecutives++;
+    journaliser('bloqué', null, null, true);
+    if (etat.corsOk !== true) {
+      etat.corsOk = false;
+      // Deuxième essai en mode « no-cors » : le navigateur n'a pas le droit de lire la réponse,
+      // mais l'appel aboutit si le réseau laisse passer. On distingue ainsi CORS et pare-feu.
+      let joignable = false;
+      try { await fetch(url, { mode: 'no-cors', cache: 'no-store' }); joignable = true; } catch (e2) { joignable = false; }
+      pastille('cors', 'ko', joignable
+        ? 'Le serveur répond, mais refuse qu\'une page web lise ses données (règle CORS). Ce n\'est pas votre réseau : les positions devront passer par l\'API du projet.'
+        : 'Le serveur est injoignable depuis ce poste : le réseau (pare-feu, proxy) bloque le site. Refaire le test depuis un autre réseau pour conclure sur CORS.');
+    }
+    return finAppel();
+  }
+  const duree = Math.round(performance.now() - t0);
+  etat.corsOk = true;
+  pastille('cors', 'ok', `Autorisé : le serveur accepte les appels venant de cette page (${location.origin}).`);
+  if (rep.status === 429) {
+    etat.erreurs++; etat.n429++; etat.consecutives++;
+    journaliser('429', duree, null, true);
+    etat.intervalle = Math.min(etat.intervalle * 2, 120);    // on ralentit de soi-même
+    pastille('freq', 'ko', `Limite atteinte (429) : je ralentis à un appel toutes les ${etat.intervalle} s.`);
+    return finAppel();
+  }
+  if (!rep.ok) {
+    etat.erreurs++; etat.consecutives++;
+    journaliser(String(rep.status), duree, null, true);
+    if (rep.status === 401 || rep.status === 403) { pastille('cors', 'ko', `Refusé par le serveur (${rep.status}) : une clé est peut-être exigée.`); arreter(); return; }
+    return finAppel();
+  }
+  const donnees = await rep.json();
+  const maintenant = Date.now();
+  etat.appels++; etat.consecutives = 0; etat.latences.push(duree);
+  const vus = new Map(); let caches = 0; const ages = [];
+  for (const a of donnees.ac || []) {
+    if (a.lat == null || a.lon == null) continue;
+    const drapeaux = a.dbFlags || 0;
+    if (drapeaux & (1 | 4 | 8)) { caches++; continue; }      // militaire, PIA, LADD : masqués comme dans le collecteur
+    const ageS = a.seen_pos ?? a.seen ?? 0;
+    ages.push(ageS);
+    vus.set(a.hex, {
+      hex: a.hex, flight: (a.flight || '').trim(), r: a.r, t: a.t, lat: a.lat, lon: a.lon,
+      alt: typeof a.alt_baro === 'number' ? a.alt_baro : null, sol: a.alt_baro === 'ground',
+      gs: a.gs, track: a.track ?? a.true_heading ?? null, ws: a.ws, mlat: (a.mlat || []).includes('lat'),
+      tMesure: maintenant - ageS * 1000,
+    });
+  }
+  etat.avions = vus;
+  journaliser('200', duree, vus.size, false);
+  $('c-avions').textContent = vus.size.toLocaleString('fr-FR');
+  $('c-caches').textContent = caches;
+  const ageMed = mediane(ages);
+  $('c-age').textContent = ageMed != null ? ageMed.toFixed(1) + ' s' : '–';
+  if (ageMed != null) pastille('frais', ageMed <= 10 ? 'ok' : '', `Âge médian ${ageMed.toFixed(1)} s ; ${(100 * ages.filter((x) => x > 30).length / Math.max(ages.length, 1)).toFixed(1)} % des positions ont plus de 30 s.`);
+  if (etat.n429 === 0) {
+    etat.plusPetitSans429 = etat.intervalle;
+    pastille('freq', etat.appels >= 6 ? 'ok' : '', `${etat.appels} appels toutes les ${etat.intervalle} s sans aucun refus` + (etat.appels >= 6 ? '.' : ' (laissez tourner au moins une minute).'));
+  }
+  finAppel();
+}
+
+function finAppel() {
+  $('c-appels').textContent = etat.appels;
+  $('c-erreurs').textContent = etat.erreurs + (etat.n429 ? ` (${etat.n429})` : '');
+  const m = mediane(etat.latences);
+  $('c-latence').textContent = m != null ? Math.round(m) + ' ms' : '–';
+  if (etat.consecutives >= 3) { arreter(); journaliser('arrêt : 3 erreurs de suite', null, null, true); return; }
+  if (etat.actif) etat.minuteur = setTimeout(appeler, etat.intervalle * 1000);
+}
+
+function lancer() {
+  etat.actif = true; etat.intervalle = Number($('intervalle').value); etat.consecutives = 0;
+  const [la, lo] = $('zone').value.split(',').map(Number);
+  carte.setView([la, lo], Number($('rayon').value) > 100 ? 6 : 7);
+  $('lancer').textContent = 'Arrêter';
+  appeler();
+}
+function arreter() {
+  etat.actif = false; clearTimeout(etat.minuteur); $('lancer').textContent = 'Lancer';
+}
+$('lancer').addEventListener('click', () => (etat.actif ? arreter() : lancer()));
+['zone', 'rayon', 'intervalle'].forEach((id) => $(id).addEventListener('change', () => { if (etat.actif) { arreter(); lancer(); } }));
+document.addEventListener('visibilitychange', () => { if (document.hidden && etat.actif) arreter(); });  // onglet caché : on n'appelle plus
+</script>
+</body>
+</html>

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rejouer le ciel — DST Airlines</title>
+<meta name="description" content="Une journée de vols américains rejouée : ce que le modèle annonçait avant le départ, et ce qui s'est réellement passé.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Overpass:wght@400;600;800&family=Overpass+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="vendor/leaflet.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="entete">
+  <div class="titre">
+    <h1>Rejouer le ciel</h1>
+    <p class="sous-titre">Une journée de vols américains, rejouée. Pour chaque vol : ce qui était annoncé avant le départ, puis ce qui s'est passé.</p>
+  </div>
+  <div class="commandes">
+    <label class="champ">Journée
+      <select id="choix-jour" aria-label="Journée rejouée"></select>
+    </label>
+    <fieldset class="lentilles" aria-label="Colorer les vols selon">
+      <legend>Colorer selon</legend>
+      <button type="button" data-lentille="modele" aria-pressed="true">Le modèle BTS, 1 h avant</button>
+      <button type="button" data-lentille="mondial" aria-pressed="false" hidden>Le modèle mondial, 1 h avant</button>
+      <button type="button" data-lentille="duree" aria-pressed="false">Ma méthode par la durée</button>
+      <button type="button" data-lentille="horaire" aria-pressed="false">L'horaire reconstitué</button>
+      <button type="button" data-lentille="officiel" aria-pressed="false">La vérité officielle</button>
+    </fieldset>
+  </div>
+</header>
+
+<main class="scene">
+  <section class="carte-cadre" aria-label="Carte des vols">
+    <div id="carte"></div>
+    <div class="legende" id="legende" aria-live="polite"></div>
+    <form class="recherche" id="recherche" role="search">
+      <label for="champ-recherche" class="visuel-cache">Chercher un vol</label>
+      <input id="champ-recherche" list="liste-indicatifs" placeholder="Chercher un vol (ex. AAL100)" autocomplete="off">
+      <datalist id="liste-indicatifs"></datalist>
+    </form>
+  </section>
+
+  <aside class="panneau">
+    <nav class="onglets" role="tablist">
+      <button role="tab" id="onglet-vol" aria-controls="volet-vol" aria-selected="true">Le vol</button>
+      <button role="tab" id="onglet-jour" aria-controls="volet-jour" aria-selected="false">La journée</button>
+      <button role="tab" id="onglet-memoire" aria-controls="volet-memoire" aria-selected="false">Les chiffres du mémoire</button>
+    </nav>
+    <section id="volet-vol" role="tabpanel" aria-labelledby="onglet-vol" class="volet">
+      <p class="vide">Cliquez sur un avion, ou cherchez un vol par son indicatif.</p>
+    </section>
+    <section id="volet-jour" role="tabpanel" aria-labelledby="onglet-jour" class="volet" hidden></section>
+    <section id="volet-memoire" role="tabpanel" aria-labelledby="onglet-memoire" class="volet" hidden></section>
+  </aside>
+</main>
+
+<footer class="temps">
+  <button type="button" id="lecture" class="lecture" aria-label="Lancer la lecture">▶</button>
+  <output id="horloge" class="horloge" aria-live="off">--:--</output>
+  <input type="range" id="curseur" min="0" max="86400" step="60" value="0" aria-label="Heure de la journée (UTC)">
+  <label class="champ vitesse">Vitesse
+    <select id="vitesse">
+      <option value="60">× 60</option>
+      <option value="300" selected>× 300</option>
+      <option value="900">× 900</option>
+    </select>
+  </label>
+  <span class="compte" id="compte"></span>
+</footer>
+
+<p class="erreur" id="erreur" hidden></p>
+<script src="vendor/leaflet.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

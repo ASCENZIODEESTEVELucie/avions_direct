@@ -1,0 +1,408 @@
+/* Rejouer le ciel — rejoue une journée de vols à partir des fichiers de donnees/.
+   Aucun calcul de modèle ici : tout a été précalculé par preparer_demo.py (données froides). */
+'use strict';
+
+const $ = (id) => document.getElementById(id);
+const ETATS_ENTRANT = {
+  0: "c'est son premier vol de la journée",
+  1: "l'avion qui arrive est au sol, à l'heure",
+  2: "l'avion qui arrive n'est pas parti et a déjà du retard",
+  3: "l'avion qui arrive est en l'air",
+  4: "l'avion qui arrive s'est déjà posé",
+};
+const LENTILLES = {
+  modele: { titre: 'Le modèle BTS, 1 h avant le départ', oui: 'alerte de retard', non: 'pas d\'alerte', inconnu: 'sans prédiction' },
+  mondial: { titre: 'Le modèle mondial (ADS-B), 1 h avant', oui: 'alerte de retard', non: 'pas d\'alerte', inconnu: 'vol absent de l\'archive ADS-B' },
+  duree: { titre: 'Ma méthode par la durée', oui: 'vol anormalement long', non: 'durée normale', inconnu: 'route non modélisée' },
+  horaire: { titre: "L'horaire reconstitué", oui: 'retard de 15 min ou plus', non: "à l'heure", inconnu: 'horaire inconnu' },
+  officiel: { titre: 'La vérité officielle (BTS)', oui: 'retard de 15 min ou plus', non: "à l'heure", inconnu: 'sans donnée' },
+};
+
+const etat = { jour: null, vols: [], t0: 0, t: 0, lecture: false, vitesse: 300, lentille: 'modele', choisi: null, index: null };
+let carte, calque, contexte, couleurs, calquesFond = [];
+
+/* ── Utilitaires ─────────────────────────────────────────────────────────── */
+function lireCouleurs() {
+  const s = getComputedStyle(document.documentElement);
+  couleurs = { oui: s.getPropertyValue('--en-retard').trim(), non: s.getPropertyValue('--a-l-heure').trim(),
+               inconnu: s.getPropertyValue('--inconnu').trim(), encre: s.getPropertyValue('--encre').trim(),
+               fond: s.getPropertyValue('--panneau').trim() };
+}
+const hhmm = (t) => {
+  if (t == null) return '--:--';
+  const d = new Date(t * 1000);
+  const j = Math.floor((t - etat.t0) / 86400);
+  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}${j > 0 ? ' +1 j' : ''}`;
+};
+const minutes = (s) => (s == null ? '—' : `${Math.floor(s / 3600)} h ${String(Math.round((s % 3600) / 60)).padStart(2, '0')}`);
+const signe = (m) => (m == null ? '—' : `${m > 0 ? '+' : ''}${Math.round(m)} min`);
+const pct = (x) => (x == null ? '—' : `${(100 * x).toFixed(1).replace('.', ',')} %`);
+const rad = (d) => (d * Math.PI) / 180;
+const deg = (r) => (r * 180) / Math.PI;
+
+function vecteur(lat, lon) {
+  return [Math.cos(rad(lat)) * Math.cos(rad(lon)), Math.cos(rad(lat)) * Math.sin(rad(lon)), Math.sin(rad(lat))];
+}
+/* Position sur le grand cercle entre départ et arrivée, à la fraction f du trajet */
+function surGrandCercle(a, b, f) {
+  const dot = Math.min(1, Math.max(-1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]));
+  const om = Math.acos(dot);
+  if (om < 1e-9) return a;
+  const s = Math.sin(om), k1 = Math.sin((1 - f) * om) / s, k2 = Math.sin(f * om) / s;
+  return [k1 * a[0] + k2 * b[0], k1 * a[1] + k2 * b[1], k1 * a[2] + k2 * b[2]];
+}
+const versLatLon = (v) => [deg(Math.atan2(v[2], Math.hypot(v[0], v[1]))), deg(Math.atan2(v[1], v[0]))];
+
+/* ── Verdicts selon la lentille ──────────────────────────────────────────── */
+function verdict(v, lentille) {
+  switch (lentille) {
+    case 'modele': return v.proba == null ? null : v.proba >= etat.jour.seuil_alerte;
+    case 'mondial': return v.proba_mondial == null || etat.jour.seuil_mondial == null ? null : v.proba_mondial >= etat.jour.seuil_mondial;
+    case 'duree': return v.verdict_duree == null ? null : v.verdict_duree === 1;
+    case 'horaire': return v.retard_horaire_min == null ? null : v.retard_horaire_min >= 15;
+    default: return v.retard15_officiel == null ? null : v.retard15_officiel === 1;
+  }
+}
+const couleurDe = (b) => (b == null ? couleurs.inconnu : b ? couleurs.oui : couleurs.non);
+
+/* ── Chargement ──────────────────────────────────────────────────────────── */
+async function charger(url) {
+  const r = await fetch(url, { cache: 'no-cache' });
+  if (!r.ok) throw new Error(`${url} : réponse ${r.status}`);
+  return r.json();
+}
+
+async function chargerJour(jour) {
+  const d = await charger(`donnees/jour_${jour}.json`);
+  const c = Object.fromEntries(d.colonnes.map((n, i) => [n, i]));
+  etat.jour = d;
+  etat.t0 = Date.UTC(+jour.slice(0, 4), +jour.slice(5, 7) - 1, +jour.slice(8, 10)) / 1000;
+  etat.vols = d.vols.map((l, i) => {
+    const v = Object.fromEntries(d.colonnes.map((n) => [n, l[c[n]]]));
+    const o = d.aeroports[v.o], a = d.aeroports[v.d];
+    v.id = i; v.a = vecteur(o[0], o[1]); v.b = vecteur(a[0], a[1]);
+    return v;
+  });
+  etat.choisi = null;
+  // Le cinquième regard n'existe que pour les journées de la période de test du modèle mondial
+  const avecMondial = d.seuil_mondial != null;
+  const bouton = document.querySelector('.lentilles button[data-lentille="mondial"]');
+  if (bouton) bouton.hidden = !avecMondial;
+  if (!avecMondial && etat.lentille === 'mondial') {
+    etat.lentille = 'modele';
+    document.querySelectorAll('.lentilles button').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.lentille === 'modele')));
+  }
+  const fin = Math.max(...etat.vols.map((v) => v.t_on)) - etat.t0;
+  $('curseur').max = Math.ceil(fin / 3600) * 3600;
+  etat.t = etat.t0 + 14 * 3600;  // on ouvre à 14 h UTC (10 h à New York), quand le ciel américain est plein
+  carte.fitBounds(Object.values(d.aeroports).map(([la, lo]) => [la, lo]), { padding: [40, 40] });
+  $('liste-indicatifs').replaceChildren(...[...new Set(etat.vols.map((v) => v.callsign))].sort()
+    .map((cs) => Object.assign(document.createElement('option'), { value: cs })));
+  afficherVol(null);
+  afficherJournee();
+  majTemps();
+}
+
+/* ── La carte ────────────────────────────────────────────────────────────── */
+function creerCarte() {
+  carte = L.map('carte', { zoomControl: true, worldCopyJump: true, attributionControl: true }).setView([38.5, -96], 4);
+  // Fond de carte embarqué (Natural Earth, domaine public) : aucune clé, aucun service tiers, fonctionne hors ligne.
+  carte.attributionControl.setPrefix(false);
+  carte.attributionControl.addAttribution('Fond : <a href="https://www.naturalearthdata.com/">Natural Earth</a> · vols : BTS · <a href="https://leafletjs.com">Leaflet</a>');
+  fetch('vendor/fond_carte.json').then((r) => r.json()).then((fond) => {
+    const rendu = L.canvas({ padding: 0.5 });
+    const style = (cle, extra) => () => ({ renderer: rendu, interactive: false, ...extra(getComputedStyle(document.documentElement).getPropertyValue(cle).trim()) });
+    calquesFond = [
+      L.geoJSON(fond.terre, { style: style('--terre', (c) => ({ fillColor: c, fillOpacity: 1, stroke: false })) }),
+      L.geoJSON(fond.frontieres, { style: style('--limite', (c) => ({ color: c, weight: 1.2, fill: false })) }),
+      L.geoJSON(fond.etats, { style: style('--limite', (c) => ({ color: c, weight: 0.6, fill: false, dashArray: '2 3' })) }),
+    ];
+    calquesFond.forEach((c) => c.addTo(carte));
+  }).catch(() => {});   // sans fond, la carte reste lisible : avions et aéroports
+
+  calque = document.createElement('canvas');
+  Object.assign(calque.style, { position: 'absolute', inset: '0', zIndex: 450, pointerEvents: 'none' });
+  carte.getContainer().appendChild(calque);
+  contexte = calque.getContext('2d');
+  const taille = () => {
+    const r = carte.getContainer().getBoundingClientRect(), p = devicePixelRatio || 1;
+    calque.width = r.width * p; calque.height = r.height * p;
+    calque.style.width = `${r.width}px`; calque.style.height = `${r.height}px`;
+    contexte.setTransform(p, 0, 0, p, 0, 0);
+    dessiner();
+  };
+  carte.on('move zoom resize', dessiner);
+  carte.on('resize', taille);
+  new ResizeObserver(taille).observe(carte.getContainer());
+  carte.on('click', (e) => choisirPres(e.containerPoint));
+  taille();
+}
+
+function positions() {
+  const t = etat.t, out = [];
+  for (const v of etat.vols) {
+    if (t < v.t_off || t > v.t_on) continue;
+    const f = (t - v.t_off) / (v.t_on - v.t_off);
+    const p = versLatLon(surGrandCercle(v.a, v.b, f));
+    const q = versLatLon(surGrandCercle(v.a, v.b, Math.min(1, f + 0.01)));
+    out.push({ v, p, q });
+  }
+  return out;
+}
+
+function dessiner() {
+  if (!contexte || !etat.jour) return;
+  const w = calque.clientWidth, h = calque.clientHeight;
+  contexte.clearRect(0, 0, w, h);
+  // aéroports
+  contexte.font = '600 11px Overpass, system-ui, sans-serif';
+  for (const [code, [lat, lon]] of Object.entries(etat.jour.aeroports)) {
+    const pt = carte.latLngToContainerPoint([lat, lon]);
+    contexte.fillStyle = couleurs.encre; contexte.globalAlpha = 0.55;
+    contexte.fillRect(pt.x - 2, pt.y - 2, 4, 4);
+    if (carte.getZoom() >= 4) contexte.fillText(code, pt.x + 5, pt.y - 4);
+  }
+  contexte.globalAlpha = 1;
+  // trajet du vol choisi
+  const ch = etat.choisi;
+  if (ch) {
+    contexte.strokeStyle = couleurs.encre; contexte.lineWidth = 1.5; contexte.setLineDash([4, 4]);
+    contexte.beginPath();
+    for (let i = 0; i <= 40; i++) {
+      const pt = carte.latLngToContainerPoint(versLatLon(surGrandCercle(ch.a, ch.b, i / 40)));
+      i ? contexte.lineTo(pt.x, pt.y) : contexte.moveTo(pt.x, pt.y);
+    }
+    contexte.stroke(); contexte.setLineDash([]);
+  }
+  // avions
+  const compte = { oui: 0, non: 0, inconnu: 0 };
+  etat.visibles = [];
+  for (const { v, p, q } of positions()) {
+    const pt = carte.latLngToContainerPoint(p), pq = carte.latLngToContainerPoint(q);
+    const cap = Math.atan2(pq.y - pt.y, pq.x - pt.x);          // direction à l'écran
+    if (pt.x < -10 || pt.y < -10 || pt.x > w + 10 || pt.y > h + 10) continue;
+    const b = verdict(v, etat.lentille);
+    compte[b == null ? 'inconnu' : b ? 'oui' : 'non']++;
+    const r = v === ch ? 8 : 4.5;
+    contexte.save();
+    contexte.translate(pt.x, pt.y); contexte.rotate(cap + Math.PI / 2);   // la pointe (vers -y) suit le cap
+    contexte.beginPath(); contexte.moveTo(0, -r * 1.5); contexte.lineTo(r * 0.9, r); contexte.lineTo(0, r * 0.45);
+    contexte.lineTo(-r * 0.9, r); contexte.closePath();
+    if (v === ch) { contexte.lineWidth = 4; contexte.strokeStyle = couleurs.fond; contexte.stroke(); }
+    contexte.fillStyle = couleurDe(b); contexte.fill();
+    if (v === ch) { contexte.lineWidth = 1.5; contexte.strokeStyle = couleurs.encre; contexte.stroke(); }
+    contexte.restore();
+    etat.visibles.push({ v, x: pt.x, y: pt.y });
+  }
+  afficherLegende(compte);
+}
+
+function afficherLegende(c) {
+  const l = LENTILLES[etat.lentille];
+  const ligne = (coul, txt, n) => `<span><i class="pastille" style="background:${coul}"></i>${txt} : ${n}</span>`;
+  $('legende').innerHTML = `<strong>${l.titre}</strong>` + ligne(couleurs.oui, l.oui, c.oui) + ligne(couleurs.non, l.non, c.non)
+    + (c.inconnu ? ligne(couleurs.inconnu, l.inconnu, c.inconnu) : '');
+  $('compte').textContent = `${c.oui + c.non + c.inconnu} avions en vol`;
+}
+
+function choisirPres(pt) {
+  let mieux = null, d2 = 14 * 14;
+  for (const s of etat.visibles || []) {
+    const d = (s.x - pt.x) ** 2 + (s.y - pt.y) ** 2;
+    if (d < d2) { d2 = d; mieux = s.v; }
+  }
+  if (mieux) choisir(mieux);
+}
+
+function choisir(v) {
+  etat.choisi = v;
+  ouvrirOnglet('vol');
+  afficherVol(v);
+  dessiner();
+}
+
+/* ── Le temps ────────────────────────────────────────────────────────────── */
+function majTemps() {
+  $('curseur').value = Math.round(etat.t - etat.t0);
+  $('horloge').textContent = `${hhmm(etat.t)} UTC`;
+  dessiner();
+}
+let dernier = null;
+function boucle(ts) {
+  if (!etat.lecture) { dernier = null; return; }
+  if (dernier != null) {
+    etat.t += ((ts - dernier) / 1000) * etat.vitesse;
+    if (etat.t - etat.t0 > +$('curseur').max) etat.t = etat.t0;
+    majTemps();
+  }
+  dernier = ts;
+  requestAnimationFrame(boucle);
+}
+function basculerLecture(forcer) {
+  etat.lecture = forcer ?? !etat.lecture;
+  $('lecture').textContent = etat.lecture ? '❚❚' : '▶';
+  $('lecture').setAttribute('aria-label', etat.lecture ? 'Mettre en pause' : 'Lancer la lecture');
+  if (etat.lecture) requestAnimationFrame(boucle);
+}
+
+/* ── Le panneau : un vol ─────────────────────────────────────────────────── */
+function jauge(valeur, min, max, repere, couleur, gauche, droite) {
+  const x = (u) => `${Math.max(0, Math.min(100, (100 * (u - min)) / (max - min)))}%`;
+  return `<div class="jauge"><div class="rempli" style="width:${x(valeur)};background:${couleur}"></div>`
+    + (repere != null ? `<div class="repere" style="left:${x(repere)}"></div>` : '')
+    + `</div><div class="jauge-legende"><span>${gauche}</span><span>${droite}</span></div>`;
+}
+function puce(b, l) {
+  const txt = b == null ? l.inconnu : b ? l.oui : l.non;
+  return `<p class="verdict"><i class="pastille" style="background:${couleurDe(b)}"></i>${txt.charAt(0).toUpperCase() + txt.slice(1)}</p>`;
+}
+
+function afficherVol(v) {
+  const z = $('volet-vol');
+  if (!v) { z.innerHTML = '<p class="vide">Cliquez sur un avion, ou cherchez un vol par son indicatif.</p>'; return; }
+  const seuil = etat.jour.seuil_alerte;
+  const arrPorte = v.t_on + 60 * etat.jour.roulage_arrivee_min;
+  const officiel = verdict(v, 'officiel');
+  const bm = verdict(v, 'modele'), bd = verdict(v, 'duree'), bh = verdict(v, 'horaire'), bw = verdict(v, 'mondial');
+  const seuilMondial = etat.jour.seuil_mondial;
+
+  const lignesTableau = [
+    ['Départ prévu', hhmm(v.t_dep_prevu), ''],
+    ['Décollage', hhmm(v.t_off), 'discret'],
+    ['Arrivée prévue', hhmm(v.t_arr_prevu), ''],
+    ['Atterrissage', hhmm(v.t_on), 'discret'],
+    ['Retard officiel', signe(v.retard_officiel_min), officiel ? 'retard' : ''],
+  ].map(([e, val, c]) => `<div class="ligne"><span class="etiquette">${e}</span><span class="valeur ${c}">${val}</span></div>`).join('');
+
+  const avant = v.proba == null ? '<p class="vide">Pas de prédiction pour ce vol.</p>' : `
+      ${puce(bm, LENTILLES.modele)}
+      ${jauge(v.proba, 0, 1, seuil, couleurDe(bm), 'probabilité de retard ' + pct(v.proba), 'seuil d\'alerte ' + pct(seuil))}
+      <dl class="faits">
+        <dt>Avion entrant</dt><dd>${v.etat_entrant == null ? '—' : ETATS_ENTRANT[v.etat_entrant]}</dd>
+        <dt>Son retard connu</dt><dd>${v.retard_entrant_min == null ? '—' : signe(v.retard_entrant_min)}</dd>
+        <dt>Marge prévue entre les deux vols</dt><dd>${v.marge_rotation_min == null ? '—' : v.marge_rotation_min + ' min'}</dd>
+      </dl>`;
+
+  const mondial = seuilMondial == null ? '' : `
+    <section class="regard"><h3>Avant le départ : le modèle mondial</h3>
+      <p class="quand">Le modèle du notebook 13, appris sur l'archive ADS-B mondiale, sans aucune donnée officielle. Même instant : une heure avant le départ prévu.</p>
+      ${v.proba_mondial == null ? '<p class="vide">Ce vol n\'a pas été retrouvé dans l\'archive ADS-B : pas de prédiction mondiale.</p>' : `
+      ${puce(bw, LENTILLES.mondial)}
+      ${jauge(v.proba_mondial, 0, 1, seuilMondial, couleurDe(bw), 'probabilité de retard ' + pct(v.proba_mondial), 'seuil d\'alerte ' + pct(seuilMondial))}`}
+    </section>`;
+
+  const duree = v.seuil_route_s == null ? '<p class="vide">Route trop rare pour avoir un seuil (moins de 5 vols).</p>' : `
+      ${puce(bd, LENTILLES.duree)}
+      ${jauge(v.air_time_s, 0.6 * v.mediane_route_s, Math.max(v.air_time_s, v.seuil_route_s) * 1.08, v.seuil_route_s, couleurDe(bd),
+              'en l\'air ' + minutes(v.air_time_s), 'seuil ' + minutes(v.seuil_route_s))}
+      <dl class="faits">
+        <dt>Durée habituelle de la route</dt><dd>${minutes(v.mediane_route_s)}</dd>
+        <dt>Écart à l'habitude</dt><dd>${signe((v.air_time_s - v.mediane_route_s) / 60)}</dd>
+      </dl>`;
+
+  const horaire = v.arr_prevue_rec == null ? '<p class="vide">Horaire inconnu : ce vol n\'a pas été vu le mois précédent.</p>' : `
+      ${puce(bh, LENTILLES.horaire)}
+      <dl class="faits">
+        <dt>Arrivée prévue, reconstituée</dt><dd>${hhmm(v.arr_prevue_rec)}${v.arr_prevue_rec === v.t_arr_prevu ? ' (exacte)' : ` (officielle ${hhmm(v.t_arr_prevu)})`}</dd>
+        <dt>À la porte, estimé</dt><dd>${hhmm(arrPorte)} (atterrissage + ${etat.jour.roulage_arrivee_min} min)</dd>
+        <dt>Retard calculé</dt><dd>${signe(v.retard_horaire_min)}</dd>
+      </dl>`;
+
+  const juste = (b) => (b == null || officiel == null ? null : b === officiel);
+  const accords = [['le modèle BTS', juste(bm)], ['le modèle mondial', juste(bw)], ["l'horaire reconstitué", juste(bh)]]
+    .filter(([, j]) => j != null).map(([n, j]) => `${n} ${j ? 'avait vu juste' : 's\'est trompé'}`);
+
+  z.innerHTML = `
+    <p class="route"><span class="code">${v.o}</span><span class="fleche" aria-hidden="true">→</span><span class="code">${v.d}</span></p>
+    <p class="identite">Vol ${v.callsign}, avion ${v.immat}, ${Math.round(v.distance_km).toLocaleString('fr-FR')} km. Heures en UTC.</p>
+    <div class="tableau" role="table" aria-label="Horaires du vol">${lignesTableau}</div>
+    <section class="regard"><h3>Avant le départ : le modèle BTS</h3>
+      <p class="quand">Calculé à ${hhmm(v.t_dep_prevu - 3600)}, une heure avant le départ prévu, avec ce qui était connu à cet instant.</p>${avant}</section>${mondial}
+    <section class="regard"><h3>Après l'atterrissage : ma méthode par la durée</h3>
+      <p class="quand">Le temps en l'air comparé aux vols de la même route, sans aucun horaire.</p>${duree}</section>
+    <section class="regard"><h3>Après l'atterrissage : l'horaire reconstitué</h3>
+      <p class="quand">L'heure habituelle de ce vol, apprise le mois précédent, comparée à l'atterrissage.</p>${horaire}</section>
+    <section class="regard"><h3>La vérité officielle</h3>
+      <p class="quand">Ce que la compagnie a déclaré au ministère américain des Transports (BTS).</p>
+      ${puce(officiel, LENTILLES.officiel)}
+      <dl class="faits"><dt>Retard à l'arrivée</dt><dd>${signe(v.retard_officiel_min)}</dd>
+        <dt>Cause principale déclarée</dt><dd>${v.cause || '—'}</dd></dl>
+      ${accords.length ? `<p class="accord">Pour ce vol, ${accords.join(', et ')}.</p>` : ''}
+    </section>`;
+}
+
+/* ── Le panneau : la journée et le mémoire ──────────────────────────────── */
+function afficherJournee() {
+  const r = etat.jour.resume, a = etat.jour.appris_sur;
+  const m = (titre, chiffre, texte) => `<div class="mesure"><h3>${titre}</h3><p><span class="chiffre">${chiffre}</span></p><p>${texte}</p></div>`;
+  const pr = (x) => `${pct(x.precision)} / ${pct(x.rappel)}`;
+  const periode = (p) => (p ? `du ${p[0]} au ${p[1]}` : '—');
+  $('volet-jour').innerHTML = `
+    <div class="mesures">
+      ${m('Vols rejoués', r.vols.toLocaleString('fr-FR'), `entre les ${Object.keys(etat.jour.aeroports).length} aéroports les plus fréquentés du ${etat.jour.jour}, dont ${pct(r.taux_retard_officiel)} en retard officiel.`)}
+      ${r.modele ? m('Le modèle BTS, 1 h avant le départ', pr(r.modele), 'précision / rappel sur le retard officiel de la journée.') : ''}
+      ${r.mondial ? m('Le modèle mondial (ADS-B), 1 h avant', pr(r.mondial), `précision / rappel sur le retard officiel, pour les ${pct(r.mondial.couverture)} de vols retrouvés dans l'archive ADS-B.`
+        + (r.modele_memes_vols ? ` Sur exactement ces vols, le modèle BTS fait ${pr(r.modele_memes_vols)}.` : '')) : ''}
+      ${m("L'horaire reconstitué", pr(r.horaire), `précision / rappel sur le retard officiel, pour les ${pct(r.horaire.couverture)} de vols dont l'horaire est connu.`)}
+      ${m('Ma méthode par la durée', pr(r.duree), `précision / rappel face aux vols qui ont duré plus de 15 min de plus que prévu, sur ${pct(r.duree.couverture)} des vols.`)}
+    </div>
+    <p class="note">Rien de ce qui est affiché « avant le départ » ne vient du futur : le modèle BTS a appris ${periode(a.modele)}
+      et choisi son seuil ${periode(a.seuil_alerte_choisi_sur)} ;${a.modele_mondial ? ` le modèle mondial a appris ${periode(a.modele_mondial)} et choisi son seuil ${periode(a.seuil_mondial_choisi_sur)} ;` : ''} l'horaire a été appris ${periode(a.horaire)} ;
+      les seuils de durée ${periode(a.seuils_de_duree)}. Les chiffres d'une seule journée varient : ceux du mémoire portent sur des mois entiers.</p>`;
+}
+
+function afficherMemoire(index) {
+  $('volet-memoire').innerHTML = `<ul class="memoire">${index.chiffres_memoire.map((c) => `
+      <li><div>${c.titre}</div><div class="valeur">${c.valeur}</div><div class="detail">${c.detail} (section ${c.section}).</div></li>`).join('')}</ul>
+    <p class="note">Sources : ${index.sources}. Données préparées le ${index.genere_le.slice(0, 10)}.</p>`;
+}
+
+function ouvrirOnglet(nom) {
+  for (const n of ['vol', 'jour', 'memoire']) {
+    $(`onglet-${n}`).setAttribute('aria-selected', String(n === nom));
+    $(`volet-${n}`).hidden = n !== nom;
+  }
+}
+
+/* ── Démarrage ───────────────────────────────────────────────────────────── */
+async function demarrer() {
+  lireCouleurs();
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { lireCouleurs(); calquesFond.forEach((c) => c.resetStyle()); dessiner(); });
+  creerCarte();
+  for (const n of ['vol', 'jour', 'memoire']) $(`onglet-${n}`).addEventListener('click', () => ouvrirOnglet(n));
+  document.querySelectorAll('.lentilles button').forEach((b) => b.addEventListener('click', () => {
+    etat.lentille = b.dataset.lentille;
+    document.querySelectorAll('.lentilles button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    dessiner();
+  }));
+  $('lecture').addEventListener('click', () => basculerLecture());
+  $('curseur').addEventListener('input', (e) => { etat.t = etat.t0 + +e.target.value; majTemps(); });
+  $('vitesse').addEventListener('change', (e) => { etat.vitesse = +e.target.value; });
+  $('recherche').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const cs = $('champ-recherche').value.trim().toUpperCase();
+    const v = etat.vols.find((x) => x.callsign === cs);
+    if (!v) { $('champ-recherche').setCustomValidity(`Aucun vol ${cs} ce jour-là.`); $('champ-recherche').reportValidity(); return; }
+    $('champ-recherche').setCustomValidity('');
+    if (etat.t < v.t_off || etat.t > v.t_on) { etat.t = (v.t_off + v.t_on) / 2; majTemps(); }
+    choisir(v);
+  });
+  $('champ-recherche').addEventListener('input', () => $('champ-recherche').setCustomValidity(''));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === ' ' && !['INPUT', 'SELECT', 'BUTTON'].includes(document.activeElement.tagName)) { e.preventDefault(); basculerLecture(); }
+  });
+  try {
+    const index = await charger('donnees/index.json');
+    afficherMemoire(index);
+    $('choix-jour').replaceChildren(...index.jours.map((j) => Object.assign(document.createElement('option'), { value: j, textContent: j })));
+    $('choix-jour').addEventListener('change', (e) => chargerJour(e.target.value));
+    await chargerJour(index.jours[0]);
+  } catch (err) {
+    const e = $('erreur');
+    e.hidden = false;
+    e.textContent = location.protocol === 'file:'
+      ? "Le navigateur bloque la lecture des données quand la page est ouverte comme un fichier. Lancez « python -m http.server » dans le dossier demo, puis ouvrez http://localhost:8000, ou passez par l'API (adresse /demo/)."
+      : `Les données de la démo sont introuvables (${err.message}). Lancez d'abord preparer_demo.py pour remplir le dossier donnees/.`;
+  }
+}
+demarrer();
