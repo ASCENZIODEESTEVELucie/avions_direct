@@ -124,7 +124,7 @@ async function chargerJour(jour) {
   if (dispo[etat.lentille] === false) choisirLentille(dispo.mondial ? 'mondial' : 'modele');
   const fin = Math.max(...etat.vols.map((v) => v.t_on)) - etat.t0;
   $('curseur').max = Math.ceil(fin / 3600) * 3600;
-  etat.t = etat.t0 + 20 * 3600;  // on ouvre à 20 h UTC (10 h à New York), quand le ciel américain est plein
+  etat.t = etat.t0 + 20 * 3600;  // on ouvre à 20 h UTC (16 h à New York), quand le ciel américain est plein
   carte.fitBounds(Object.values(d.aeroports).map(([la, lo]) => [la, lo]), { padding: [40, 40] });
   $('liste-indicatifs').replaceChildren(...[...new Set(etat.vols.map((v) => v.callsign))].sort()
     .map((cs) => Object.assign(document.createElement('option'), { value: cs })));
