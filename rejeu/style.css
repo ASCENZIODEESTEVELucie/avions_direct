@@ -16,6 +16,10 @@
   --mer: #dde5ec;
   --terre: #f6f7f9;
   --limite: #b9c3ce;
+  --attrape: #2e9e57;   /* alerte, et vraiment en retard */
+  --manque: #d23f3a;    /* en retard, sans alerte */
+  --fausse: #e2a11b;    /* alerte, mais à l'heure */
+  --calme: #b4c6da;     /* à l'heure, sans alerte */
   --texte: "Overpass", "Segoe UI", system-ui, -apple-system, sans-serif;
   --chiffres: "Overpass Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
   color-scheme: light;
@@ -25,6 +29,7 @@
     --fond: #10161e; --panneau: #17202b; --encre: #e6ebf0; --encre-douce: #9aa7b6; --filet: #2a3644;
     --a-l-heure: #5b9bdb; --en-retard: #f07f36; --inconnu: #5f6b78; --tableau: #0c1219; --tableau-ligne: #151d28;
     --focus: #8fbcef; --mer: #0b1118; --terre: #1a2330; --limite: #34424f; color-scheme: dark;
+    --attrape: #4cc47a; --manque: #f0645e; --fausse: #f2b33d; --calme: #3c4f66;
   }
 }
 
@@ -172,3 +177,19 @@ select, input[type="search"], .recherche input {
 .leaflet-control-attribution { background: var(--panneau) !important; color: var(--encre-douce); }
 .leaflet-control-attribution a { color: var(--a-l-heure); }
 .leaflet-bar a, .leaflet-bar a:hover { background: var(--panneau); color: var(--encre); border-bottom-color: var(--filet); }
+
+/* Lentilles secondaires, plus discrètes */
+.lentilles.secondaires button { font-size: 0.8rem; padding: 5px 9px; color: var(--encre-douce); }
+.lentilles.secondaires button[aria-pressed="true"] { color: var(--panneau); }
+
+/* Le bilan d'un vol, et les quatre cas de la journée */
+.bilan { margin: 10px 0 0; padding: 8px 10px; border-left: 4px solid var(--filet); background: var(--fond); border-radius: 4px; font-weight: 600; }
+.cas { list-style: none; margin: 14px 0; padding: 0; display: grid; gap: 6px; }
+.cas li { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; }
+.cas .chiffre { font-family: var(--chiffres); font-weight: 700; }
+.chiffre-petit { font-family: var(--chiffres); font-weight: 700; }
+.plus { margin-top: 16px; border-top: 1px solid var(--filet); padding-top: 10px; }
+.plus summary { cursor: pointer; color: var(--encre-douce); font-size: 0.9rem; }
+.plus[open] summary { margin-bottom: 8px; }
+.mesure + .mesure { margin-top: 12px; }
+.cas .pastille { display: inline-block; width: 12px; height: 12px; border-radius: 50%; }

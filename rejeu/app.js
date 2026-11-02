@@ -11,22 +11,34 @@ const ETATS_ENTRANT = {
   4: "l'avion qui arrive s'est déjà posé",
 };
 const LENTILLES = {
-  modele: { titre: 'Le modèle BTS, 1 h avant le départ', oui: 'alerte de retard', non: 'pas d\'alerte', inconnu: 'sans prédiction' },
-  mondial: { titre: 'Le modèle mondial (ADS-B), 1 h avant', oui: 'alerte de retard', non: 'pas d\'alerte', inconnu: 'vol absent de l\'archive ADS-B' },
+  mondial: { titre: 'Le modèle mondial, 1 h avant', oui: 'alerte de retard', non: 'pas d\'alerte', inconnu: 'absent de l\'archive ADS-B' },
+  mondial_15: { titre: 'Le modèle mondial, 15 min avant', oui: 'alerte de retard', non: 'pas d\'alerte', inconnu: 'absent de l\'archive ADS-B' },
+  mondial_dec: { titre: 'Le modèle mondial, au décollage', oui: 'alerte de retard', non: 'pas d\'alerte', inconnu: 'absent de l\'archive ADS-B' },
+  officiel: { titre: 'La vérité officielle', oui: 'en retard (15 min ou plus)', non: "à l'heure", inconnu: 'sans donnée' },
+  modele: { titre: 'Le modèle BTS, 1 h avant', oui: 'alerte de retard', non: 'pas d\'alerte', inconnu: 'sans prédiction' },
   duree: { titre: 'Ma méthode par la durée', oui: 'vol anormalement long', non: 'durée normale', inconnu: 'route non modélisée' },
-  horaire: { titre: "L'horaire reconstitué", oui: 'retard de 15 min ou plus', non: "à l'heure", inconnu: 'horaire inconnu' },
-  officiel: { titre: 'La vérité officielle (BTS)', oui: 'retard de 15 min ou plus', non: "à l'heure", inconnu: 'sans donnée' },
+  horaire: { titre: "L'horaire reconstitué", oui: 'en retard (15 min ou plus)', non: "à l'heure", inconnu: 'horaire inconnu' },
 };
+/* La lentille « face à la vérité » : quatre cas, comme une matrice de confusion */
+const CAS = {
+  attrape: 'alerte, et vraiment en retard',
+  manque: 'en retard, sans alerte',
+  fausse: 'alerte, mais à l\'heure',
+  calme: 'à l\'heure, sans alerte',
+  inconnu: 'pas de prédiction (absent de l\'archive ADS-B)',
+};
+/* Le modèle jugé par la lentille « face à la vérité » : le mondial s'il existe ce jour-là, sinon le BTS */
+const modeleFace = () => (etat.jour && etat.jour.seuil_mondial != null ? 'mondial' : 'modele');
 
-const etat = { jour: null, vols: [], t0: 0, t: 0, lecture: false, vitesse: 300, lentille: 'modele', choisi: null, index: null };
+const etat = { jour: null, vols: [], t0: 0, t: 0, lecture: false, vitesse: 300, lentille: 'mondial', choisi: null, index: null };
 let carte, calque, contexte, couleurs, calquesFond = [];
 
 /* ── Utilitaires ─────────────────────────────────────────────────────────── */
 function lireCouleurs() {
   const s = getComputedStyle(document.documentElement);
-  couleurs = { oui: s.getPropertyValue('--en-retard').trim(), non: s.getPropertyValue('--a-l-heure').trim(),
-               inconnu: s.getPropertyValue('--inconnu').trim(), encre: s.getPropertyValue('--encre').trim(),
-               fond: s.getPropertyValue('--panneau').trim() };
+  const v = (k) => s.getPropertyValue(k).trim();
+  couleurs = { oui: v('--en-retard'), non: v('--a-l-heure'), inconnu: v('--inconnu'), encre: v('--encre'), fond: v('--panneau'),
+               attrape: v('--attrape'), manque: v('--manque'), fausse: v('--fausse'), calme: v('--calme') };
 }
 const hhmm = (t) => {
   if (t == null) return '--:--';
@@ -58,12 +70,26 @@ function verdict(v, lentille) {
   switch (lentille) {
     case 'modele': return v.proba == null ? null : v.proba >= etat.jour.seuil_alerte;
     case 'mondial': return v.proba_mondial == null || etat.jour.seuil_mondial == null ? null : v.proba_mondial >= etat.jour.seuil_mondial;
+    case 'mondial_15': return v.proba_mondial_15 == null || etat.jour.seuil_mondial_15 == null ? null : v.proba_mondial_15 >= etat.jour.seuil_mondial_15;
+    case 'mondial_dec': return v.proba_mondial_dec == null || etat.jour.seuil_mondial_decollage == null ? null : v.proba_mondial_dec >= etat.jour.seuil_mondial_decollage;
     case 'duree': return v.verdict_duree == null ? null : v.verdict_duree === 1;
     case 'horaire': return v.retard_horaire_min == null ? null : v.retard_horaire_min >= 15;
     default: return v.retard15_officiel == null ? null : v.retard15_officiel === 1;
   }
 }
 const couleurDe = (b) => (b == null ? couleurs.inconnu : b ? couleurs.oui : couleurs.non);
+/* Le cas d'un vol : l'alerte (modèle) croisée avec la vérité officielle */
+function cas(v) {
+  const a = verdict(v, modeleFace()), o = verdict(v, 'officiel');
+  if (a == null || o == null) return 'inconnu';
+  return a ? (o ? 'attrape' : 'fausse') : (o ? 'manque' : 'calme');
+}
+/* La clé de couleur d'un vol dans la lentille courante */
+function cle(v) {
+  if (etat.lentille === 'face') return cas(v);
+  const b = verdict(v, etat.lentille);
+  return b == null ? 'inconnu' : b ? 'oui' : 'non';
+}
 
 /* ── Chargement ──────────────────────────────────────────────────────────── */
 async function charger(url) {
@@ -84,14 +110,18 @@ async function chargerJour(jour) {
     return v;
   });
   etat.choisi = null;
-  // Le cinquième regard n'existe que pour les journées de la période de test du modèle mondial
-  const avecMondial = d.seuil_mondial != null;
-  const bouton = document.querySelector('.lentilles button[data-lentille="mondial"]');
-  if (bouton) bouton.hidden = !avecMondial;
-  if (!avecMondial && etat.lentille === 'mondial') {
-    etat.lentille = 'modele';
-    document.querySelectorAll('.lentilles button').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.lentille === 'modele')));
+  // Les regards du modèle mondial n'existent que pour les journées de sa période de test,
+  // et ceux à 15 min et au décollage seulement si preparer_demo.py les a écrits.
+  const dispo = {
+    mondial: d.seuil_mondial != null,
+    mondial_15: d.seuil_mondial_15 != null && etat.vols.some((v) => v.proba_mondial_15 != null),
+    mondial_dec: d.seuil_mondial_decollage != null && etat.vols.some((v) => v.proba_mondial_dec != null),
+  };
+  for (const [n, ok] of Object.entries(dispo)) {
+    const b = document.querySelector(`.lentilles button[data-lentille="${n}"]`);
+    if (b) b.hidden = !ok;
   }
+  if (dispo[etat.lentille] === false) choisirLentille(dispo.mondial ? 'mondial' : 'modele');
   const fin = Math.max(...etat.vols.map((v) => v.t_on)) - etat.t0;
   $('curseur').max = Math.ceil(fin / 3600) * 3600;
   etat.t = etat.t0 + 14 * 3600;  // on ouvre à 14 h UTC (10 h à New York), quand le ciel américain est plein
@@ -175,21 +205,21 @@ function dessiner() {
     contexte.stroke(); contexte.setLineDash([]);
   }
   // avions
-  const compte = { oui: 0, non: 0, inconnu: 0 };
+  const compte = {};
   etat.visibles = [];
   for (const { v, p, q } of positions()) {
     const pt = carte.latLngToContainerPoint(p), pq = carte.latLngToContainerPoint(q);
     const cap = Math.atan2(pq.y - pt.y, pq.x - pt.x);          // direction à l'écran
     if (pt.x < -10 || pt.y < -10 || pt.x > w + 10 || pt.y > h + 10) continue;
-    const b = verdict(v, etat.lentille);
-    compte[b == null ? 'inconnu' : b ? 'oui' : 'non']++;
+    const k = cle(v);
+    compte[k] = (compte[k] || 0) + 1;
     const r = v === ch ? 8 : 4.5;
     contexte.save();
     contexte.translate(pt.x, pt.y); contexte.rotate(cap + Math.PI / 2);   // la pointe (vers -y) suit le cap
     contexte.beginPath(); contexte.moveTo(0, -r * 1.5); contexte.lineTo(r * 0.9, r); contexte.lineTo(0, r * 0.45);
     contexte.lineTo(-r * 0.9, r); contexte.closePath();
     if (v === ch) { contexte.lineWidth = 4; contexte.strokeStyle = couleurs.fond; contexte.stroke(); }
-    contexte.fillStyle = couleurDe(b); contexte.fill();
+    contexte.fillStyle = couleurs[k]; contexte.fill();
     if (v === ch) { contexte.lineWidth = 1.5; contexte.strokeStyle = couleurs.encre; contexte.stroke(); }
     contexte.restore();
     etat.visibles.push({ v, x: pt.x, y: pt.y });
@@ -198,11 +228,24 @@ function dessiner() {
 }
 
 function afficherLegende(c) {
-  const l = LENTILLES[etat.lentille];
-  const ligne = (coul, txt, n) => `<span><i class="pastille" style="background:${coul}"></i>${txt} : ${n}</span>`;
-  $('legende').innerHTML = `<strong>${l.titre}</strong>` + ligne(couleurs.oui, l.oui, c.oui) + ligne(couleurs.non, l.non, c.non)
-    + (c.inconnu ? ligne(couleurs.inconnu, l.inconnu, c.inconnu) : '');
-  $('compte').textContent = `${c.oui + c.non + c.inconnu} avions en vol`;
+  const ligne = (k, txt) => `<span><i class="pastille" style="background:${couleurs[k]}"></i>${txt} : ${c[k] || 0}</span>`;
+  let html;
+  if (etat.lentille === 'face') {
+    html = `<strong>${LENTILLES[modeleFace()].titre}, face à la vérité</strong>`
+      + ['attrape', 'manque', 'fausse', 'calme'].map((k) => ligne(k, CAS[k])).join('')
+      + (c.inconnu ? ligne('inconnu', CAS.inconnu) : '');
+  } else {
+    const l = LENTILLES[etat.lentille];
+    html = `<strong>${l.titre}</strong>` + ligne('oui', l.oui) + ligne('non', l.non) + (c.inconnu ? ligne('inconnu', l.inconnu) : '');
+  }
+  $('legende').innerHTML = html;
+  $('compte').textContent = `${Object.values(c).reduce((a, b) => a + b, 0)} avions en vol`;
+}
+
+function choisirLentille(nom) {
+  etat.lentille = nom;
+  document.querySelectorAll('.lentilles button').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.lentille === nom)));
+  dessiner();
 }
 
 function choisirPres(pt) {
@@ -260,105 +303,102 @@ function puce(b, l) {
 function afficherVol(v) {
   const z = $('volet-vol');
   if (!v) { z.innerHTML = '<p class="vide">Cliquez sur un avion, ou cherchez un vol par son indicatif.</p>'; return; }
-  const seuil = etat.jour.seuil_alerte;
-  const arrPorte = v.t_on + 60 * etat.jour.roulage_arrivee_min;
-  const officiel = verdict(v, 'officiel');
-  const bm = verdict(v, 'modele'), bd = verdict(v, 'duree'), bh = verdict(v, 'horaire'), bw = verdict(v, 'mondial');
-  const seuilMondial = etat.jour.seuil_mondial;
+  const J = etat.jour, officiel = verdict(v, 'officiel');
+  const bm = verdict(v, 'modele'), bd = verdict(v, 'duree'), bh = verdict(v, 'horaire');
+  const mf = modeleFace(), bf = verdict(v, mf), c = cas(v);
+  const probaF = mf === 'mondial' ? v.proba_mondial : v.proba, seuilF = mf === 'mondial' ? J.seuil_mondial : J.seuil_alerte;
 
-  const lignesTableau = [
-    ['Départ prévu', hhmm(v.t_dep_prevu), ''],
-    ['Décollage', hhmm(v.t_off), 'discret'],
-    ['Arrivée prévue', hhmm(v.t_arr_prevu), ''],
-    ['Atterrissage', hhmm(v.t_on), 'discret'],
-    ['Retard officiel', signe(v.retard_officiel_min), officiel ? 'retard' : ''],
-  ].map(([e, val, c]) => `<div class="ligne"><span class="etiquette">${e}</span><span class="valeur ${c}">${val}</span></div>`).join('');
+  const horaires = [
+    ['Départ prévu', hhmm(v.t_dep_prevu)], ['Décollage', hhmm(v.t_off)],
+    ['Arrivée prévue', hhmm(v.t_arr_prevu)], ['Atterrissage', hhmm(v.t_on)],
+  ].map(([e, val]) => `<div class="ligne"><span class="etiquette">${e}</span><span class="valeur">${val}</span></div>`).join('');
 
-  const avant = v.proba == null ? '<p class="vide">Pas de prédiction pour ce vol.</p>' : `
-      ${puce(bm, LENTILLES.modele)}
-      ${jauge(v.proba, 0, 1, seuil, couleurDe(bm), 'probabilité de retard ' + pct(v.proba), 'seuil d\'alerte ' + pct(seuil))}
-      <dl class="faits">
-        <dt>Avion entrant</dt><dd>${v.etat_entrant == null ? '—' : ETATS_ENTRANT[v.etat_entrant]}</dd>
-        <dt>Son retard connu</dt><dd>${v.retard_entrant_min == null ? '—' : signe(v.retard_entrant_min)}</dd>
-        <dt>Marge prévue entre les deux vols</dt><dd>${v.marge_rotation_min == null ? '—' : v.marge_rotation_min + ' min'}</dd>
-      </dl>`;
+  // 1. Une heure avant le départ : ce que l'on savait, et l'alerte
+  const avant = probaF == null
+    ? `<p class="vide">${mf === 'mondial' ? "Ce vol n'est pas dans l'archive ADS-B : pas de prédiction mondiale." : 'Pas de prédiction pour ce vol.'}</p>`
+    : `${puce(bf, LENTILLES[mf])}
+       ${jauge(probaF, 0, 1, seuilF, couleurDe(bf), 'probabilité ' + pct(probaF), 'seuil ' + pct(seuilF))}`;
+  const entrant = `<dl class="faits">
+      <dt>L'avion qui arrive</dt><dd>${v.etat_entrant == null ? '—' : ETATS_ENTRANT[v.etat_entrant]}</dd>
+      <dt>Son retard connu</dt><dd>${v.retard_entrant_min == null ? '—' : signe(v.retard_entrant_min)}</dd>
+      <dt>Marge prévue entre les deux vols</dt><dd>${v.marge_rotation_min == null ? '—' : v.marge_rotation_min + ' min'}</dd>
+    </dl>`;
 
-  const mondial = seuilMondial == null ? '' : `
-    <section class="regard"><h3>Avant le départ : le modèle mondial</h3>
-      <p class="quand">Le modèle du notebook 13, appris sur l'archive ADS-B mondiale, sans aucune donnée officielle. Même instant : une heure avant le départ prévu.</p>
-      ${v.proba_mondial == null ? '<p class="vide">Ce vol n\'a pas été retrouvé dans l\'archive ADS-B : pas de prédiction mondiale.</p>' : `
-      ${puce(bw, LENTILLES.mondial)}
-      ${jauge(v.proba_mondial, 0, 1, seuilMondial, couleurDe(bw), 'probabilité de retard ' + pct(v.proba_mondial), 'seuil d\'alerte ' + pct(seuilMondial))}`}
-    </section>`;
+  // Les autres instants du modèle mondial, s'ils ont été préparés
+  const autres = [['mondial_15', v.proba_mondial_15, J.seuil_mondial_15], ['mondial_dec', v.proba_mondial_dec, J.seuil_mondial_decollage]]
+    .filter(([, p, s]) => p != null && s != null)
+    .map(([n, p, s]) => { const b = p >= s; return `<p class="verdict"><i class="pastille" style="background:${couleurDe(b)}"></i>${LENTILLES[n].titre.replace('Le modèle mondial, ', '')} : ${pct(p)} (seuil ${pct(s)}), ${b ? 'alerte' : "pas d'alerte"}</p>`; })
+    .join('');
 
-  const duree = v.seuil_route_s == null ? '<p class="vide">Route trop rare pour avoir un seuil (moins de 5 vols).</p>' : `
-      ${puce(bd, LENTILLES.duree)}
-      ${jauge(v.air_time_s, 0.6 * v.mediane_route_s, Math.max(v.air_time_s, v.seuil_route_s) * 1.08, v.seuil_route_s, couleurDe(bd),
-              'en l\'air ' + minutes(v.air_time_s), 'seuil ' + minutes(v.seuil_route_s))}
-      <dl class="faits">
-        <dt>Durée habituelle de la route</dt><dd>${minutes(v.mediane_route_s)}</dd>
-        <dt>Écart à l'habitude</dt><dd>${signe((v.air_time_s - v.mediane_route_s) / 60)}</dd>
-      </dl>`;
+  // 2. La vérité, et le bilan en une phrase
+  const bilan = { attrape: 'Retard annoncé une heure avant : le modèle avait vu juste.',
+                  manque: "Retard non annoncé : le modèle l'a manqué.",
+                  fausse: "Alerte donnée, mais le vol est arrivé à l'heure.",
+                  calme: "Pas d'alerte, et le vol est arrivé à l'heure : le modèle avait vu juste." }[c];
 
-  const horaire = v.arr_prevue_rec == null ? '<p class="vide">Horaire inconnu : ce vol n\'a pas été vu le mois précédent.</p>' : `
-      ${puce(bh, LENTILLES.horaire)}
-      <dl class="faits">
-        <dt>Arrivée prévue, reconstituée</dt><dd>${hhmm(v.arr_prevue_rec)}${v.arr_prevue_rec === v.t_arr_prevu ? ' (exacte)' : ` (officielle ${hhmm(v.t_arr_prevu)})`}</dd>
-        <dt>À la porte, estimé</dt><dd>${hhmm(arrPorte)} (atterrissage + ${etat.jour.roulage_arrivee_min} min)</dd>
-        <dt>Retard calculé</dt><dd>${signe(v.retard_horaire_min)}</dd>
-      </dl>`;
-
-  const juste = (b) => (b == null || officiel == null ? null : b === officiel);
-  const accords = [['le modèle BTS', juste(bm)], ['le modèle mondial', juste(bw)], ["l'horaire reconstitué", juste(bh)]]
-    .filter(([, j]) => j != null).map(([n, j]) => `${n} ${j ? 'avait vu juste' : 's\'est trompé'}`);
+  // 3. Les autres regards, repliés
+  const detailDuree = v.seuil_route_s == null ? 'route trop rare pour avoir un seuil'
+    : `${minutes(v.air_time_s)} en l'air pour ${minutes(v.mediane_route_s)} d'habitude (seuil ${minutes(v.seuil_route_s)})`;
+  const detailHoraire = v.arr_prevue_rec == null ? "horaire inconnu (vol non vu le mois précédent)"
+    : `arrivée habituelle ${hhmm(v.arr_prevue_rec)}, retard calculé ${signe(v.retard_horaire_min)}`;
 
   z.innerHTML = `
     <p class="route"><span class="code">${v.o}</span><span class="fleche" aria-hidden="true">→</span><span class="code">${v.d}</span></p>
     <p class="identite">Vol ${v.callsign}, avion ${v.immat}, ${Math.round(v.distance_km).toLocaleString('fr-FR')} km. Heures en UTC.</p>
-    <div class="tableau" role="table" aria-label="Horaires du vol">${lignesTableau}</div>
-    <section class="regard"><h3>Avant le départ : le modèle BTS</h3>
-      <p class="quand">Calculé à ${hhmm(v.t_dep_prevu - 3600)}, une heure avant le départ prévu, avec ce qui était connu à cet instant.</p>${avant}</section>${mondial}
-    <section class="regard"><h3>Après l'atterrissage : ma méthode par la durée</h3>
-      <p class="quand">Le temps en l'air comparé aux vols de la même route, sans aucun horaire.</p>${duree}</section>
-    <section class="regard"><h3>Après l'atterrissage : l'horaire reconstitué</h3>
-      <p class="quand">L'heure habituelle de ce vol, apprise le mois précédent, comparée à l'atterrissage.</p>${horaire}</section>
-    <section class="regard"><h3>La vérité officielle</h3>
-      <p class="quand">Ce que la compagnie a déclaré au ministère américain des Transports (BTS).</p>
+    <div class="tableau" role="table" aria-label="Horaires du vol">${horaires}</div>
+    <section class="regard"><h3>1 h avant le départ</h3>
+      ${entrant}${avant}${autres}</section>
+    <section class="regard"><h3>Ce qui s'est passé</h3>
       ${puce(officiel, LENTILLES.officiel)}
       <dl class="faits"><dt>Retard à l'arrivée</dt><dd>${signe(v.retard_officiel_min)}</dd>
-        <dt>Cause principale déclarée</dt><dd>${v.cause || '—'}</dd></dl>
-      ${accords.length ? `<p class="accord">Pour ce vol, ${accords.join(', et ')}.</p>` : ''}
-    </section>`;
+        <dt>Cause déclarée</dt><dd>${v.cause || '—'}</dd></dl>
+      ${bilan ? `<p class="bilan" style="border-color:${couleurs[c]}">${bilan}</p>` : ''}
+    </section>
+    <details class="plus"><summary>Les autres regards sur ce vol</summary>
+      <dl class="faits">
+        ${mf === 'mondial' ? `<dt>Le modèle BTS, 1 h avant</dt><dd>${v.proba == null ? '—' : `${pct(v.proba)}, ${bm ? 'alerte' : "pas d'alerte"} (seuil ${pct(J.seuil_alerte)})`}</dd>` : ''}
+        <dt>Ma méthode par la durée</dt><dd>${detailDuree}${bd == null ? '' : bd ? ' : anormalement long' : ' : durée normale'}</dd>
+        <dt>L'horaire reconstitué</dt><dd>${detailHoraire}${bh == null ? '' : bh ? ' : en retard' : " : à l'heure"}</dd>
+      </dl>
+    </details>`;
 }
 
-/* ── Le panneau : la journée et le mémoire ──────────────────────────────── */
+/* ── Le panneau : la journée ─────────────────────────────────────────────── */
 function afficherJournee() {
-  const r = etat.jour.resume, a = etat.jour.appris_sur;
-  const m = (titre, chiffre, texte) => `<div class="mesure"><h3>${titre}</h3><p><span class="chiffre">${chiffre}</span></p><p>${texte}</p></div>`;
+  const r = etat.jour.resume, a = etat.jour.appris_sur, mf = modeleFace();
+  const sur100 = (x) => (x == null ? '—' : Math.round(100 * x));
   const pr = (x) => `${pct(x.precision)} / ${pct(x.rappel)}`;
   const periode = (p) => (p ? `du ${p[0]} au ${p[1]}` : '—');
-  $('volet-jour').innerHTML = `
-    <div class="mesures">
-      ${m('Vols rejoués', r.vols.toLocaleString('fr-FR'), `entre les ${Object.keys(etat.jour.aeroports).length} aéroports les plus fréquentés du ${etat.jour.jour}, dont ${pct(r.taux_retard_officiel)} en retard officiel.`)}
-      ${r.modele ? m('Le modèle BTS, 1 h avant le départ', pr(r.modele), 'précision / rappel sur le retard officiel de la journée.') : ''}
-      ${r.mondial ? m('Le modèle mondial (ADS-B), 1 h avant', pr(r.mondial), `précision / rappel sur le retard officiel, pour les ${pct(r.mondial.couverture)} de vols retrouvés dans l'archive ADS-B.`
-        + (r.modele_memes_vols ? ` Sur exactement ces vols, le modèle BTS fait ${pr(r.modele_memes_vols)}.` : '')) : ''}
-      ${m("L'horaire reconstitué", pr(r.horaire), `précision / rappel sur le retard officiel, pour les ${pct(r.horaire.couverture)} de vols dont l'horaire est connu.`)}
-      ${m('Ma méthode par la durée', pr(r.duree), `précision / rappel face aux vols qui ont duré plus de 15 min de plus que prévu, sur ${pct(r.duree.couverture)} des vols.`)}
-    </div>
-    <p class="note">Rien de ce qui est affiché « avant le départ » ne vient du futur : le modèle BTS a appris ${periode(a.modele)}
-      et choisi son seuil ${periode(a.seuil_alerte_choisi_sur)} ;${a.modele_mondial ? ` le modèle mondial a appris ${periode(a.modele_mondial)} et choisi son seuil ${periode(a.seuil_mondial_choisi_sur)} ;` : ''} l'horaire a été appris ${periode(a.horaire)} ;
-      les seuils de durée ${periode(a.seuils_de_duree)}. Les chiffres d'une seule journée varient : ceux du mémoire portent sur des mois entiers.</p>`;
-}
+  const n = { attrape: 0, manque: 0, fausse: 0, calme: 0, inconnu: 0 };
+  for (const v of etat.vols) n[cas(v)]++;
+  const resM = mf === 'mondial' ? r.mondial : r.modele;
+  const ligne = (k) => `<li><i class="pastille" style="background:${couleurs[k]}"></i><span>${CAS[k]}</span><span class="chiffre">${n[k].toLocaleString('fr-FR')}</span></li>`;
+  const autres = [
+    r.modele && mf === 'mondial' ? ['Le modèle BTS, 1 h avant', pr(r.modele), 'précision / rappel, tous les vols'] : null,
+    r.mondial_decollage ? ['Le modèle mondial, au décollage', pr(r.mondial_decollage), `précision / rappel, ${pct(r.mondial_decollage.couverture)} des vols`] : null,
+    ["L'horaire reconstitué", pr(r.horaire), `précision / rappel, ${pct(r.horaire.couverture)} des vols`],
+    ['Ma méthode par la durée', pr(r.duree), 'face aux vols qui ont duré 15 min de trop'],
+  ].filter(Boolean).map(([t, c, d]) => `<dt>${t}</dt><dd><span class="chiffre-petit">${c}</span> ${d}</dd>`).join('');
 
-function afficherMemoire(index) {
-  $('volet-memoire').innerHTML = `<ul class="memoire">${index.chiffres_memoire.map((c) => `
-      <li><div>${c.titre}</div><div class="valeur">${c.valeur}</div><div class="detail">${c.detail} (section ${c.section}).</div></li>`).join('')}</ul>
-    <p class="note">Sources : ${index.sources}. Données préparées le ${index.genere_le.slice(0, 10)}.</p>`;
+  $('volet-jour').innerHTML = `
+    <div class="mesure"><h3>${r.vols.toLocaleString('fr-FR')} vols rejoués</h3>
+      <p>Entre les ${Object.keys(etat.jour.aeroports).length} plus grands aéroports américains, le ${etat.jour.jour}. ${sur100(r.taux_retard_officiel)} sur 100 sont arrivés en retard.</p></div>
+    ${resM ? `<div class="mesure"><h3>${LENTILLES[mf].titre}</h3>
+      <p><span class="chiffre">${sur100(resM.rappel)}</span> retards sur 100 attrapés</p>
+      <p><span class="chiffre">${sur100(resM.precision)}</span> alertes sur 100 justes</p>
+      ${mf === 'mondial' ? `<p>Sur les ${pct(r.mondial.couverture)} de vols retrouvés dans l'archive ADS-B, jamais vus pendant l'apprentissage.</p>` : ''}</div>` : ''}
+    <ul class="cas">${['attrape', 'manque', 'fausse', 'calme'].map(ligne).join('')}</ul>
+    <details class="plus"><summary>Les autres regards et les chiffres du mémoire</summary>
+      <dl class="faits">${autres}</dl>
+      ${etat.index ? `<ul class="memoire">${etat.index.chiffres_memoire.map((c) => `
+        <li><div>${c.titre}</div><div class="valeur">${c.valeur}</div><div class="detail">${c.detail} (section ${c.section}).</div></li>`).join('')}</ul>` : ''}
+      <p class="note">Rien de ce qui est affiché « avant le départ » ne vient du futur : le modèle BTS a appris ${periode(a.modele)} ;${a.modele_mondial ? ` le modèle mondial a appris ${periode(a.modele_mondial)} et choisi son seuil ${periode(a.seuil_mondial_choisi_sur)} ;` : ''} l'horaire ${periode(a.horaire)}.
+        ${etat.index ? `Sources : ${etat.index.sources}.` : ''}</p>
+    </details>`;
 }
 
 function ouvrirOnglet(nom) {
-  for (const n of ['vol', 'jour', 'memoire']) {
+  for (const n of ['vol', 'jour']) {
     $(`onglet-${n}`).setAttribute('aria-selected', String(n === nom));
     $(`volet-${n}`).hidden = n !== nom;
   }
@@ -369,12 +409,8 @@ async function demarrer() {
   lireCouleurs();
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { lireCouleurs(); calquesFond.forEach((c) => c.resetStyle()); dessiner(); });
   creerCarte();
-  for (const n of ['vol', 'jour', 'memoire']) $(`onglet-${n}`).addEventListener('click', () => ouvrirOnglet(n));
-  document.querySelectorAll('.lentilles button').forEach((b) => b.addEventListener('click', () => {
-    etat.lentille = b.dataset.lentille;
-    document.querySelectorAll('.lentilles button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
-    dessiner();
-  }));
+  for (const n of ['vol', 'jour']) $(`onglet-${n}`).addEventListener('click', () => ouvrirOnglet(n));
+  document.querySelectorAll('.lentilles button').forEach((b) => b.addEventListener('click', () => choisirLentille(b.dataset.lentille)));
   $('lecture').addEventListener('click', () => basculerLecture());
   $('curseur').addEventListener('input', (e) => { etat.t = etat.t0 + +e.target.value; majTemps(); });
   $('vitesse').addEventListener('change', (e) => { etat.vitesse = +e.target.value; });
@@ -393,7 +429,7 @@ async function demarrer() {
   });
   try {
     const index = await charger('donnees/index.json');
-    afficherMemoire(index);
+    etat.index = index;
     $('choix-jour').replaceChildren(...index.jours.map((j) => Object.assign(document.createElement('option'), { value: j, textContent: j })));
     $('choix-jour').addEventListener('change', (e) => chargerJour(e.target.value));
     await chargerJour(index.jours[0]);

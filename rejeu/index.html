@@ -15,7 +15,7 @@
 <header class="entete">
   <div class="titre">
     <h1>Rejouer le ciel</h1>
-    <p class="sous-titre">Une journée de vols américains, rejouée. Pour chaque vol : ce qui était annoncé avant le départ, puis ce qui s'est passé.</p>
+    <p class="sous-titre">Une journée de vols américains rejouée : ce que le modèle annonçait une heure avant, et ce qui s'est vraiment passé.</p>
   </div>
   <div class="commandes">
     <label class="champ">Journée
@@ -23,11 +23,17 @@
     </label>
     <fieldset class="lentilles" aria-label="Colorer les vols selon">
       <legend>Colorer selon</legend>
-      <button type="button" data-lentille="modele" aria-pressed="true">Le modèle BTS, 1 h avant</button>
-      <button type="button" data-lentille="mondial" aria-pressed="false" hidden>Le modèle mondial, 1 h avant</button>
-      <button type="button" data-lentille="duree" aria-pressed="false">Ma méthode par la durée</button>
-      <button type="button" data-lentille="horaire" aria-pressed="false">L'horaire reconstitué</button>
+      <button type="button" data-lentille="mondial" aria-pressed="true" hidden>Le modèle mondial, 1 h avant</button>
+      <button type="button" data-lentille="mondial_15" aria-pressed="false" hidden>15 min avant</button>
+      <button type="button" data-lentille="mondial_dec" aria-pressed="false" hidden>Au décollage</button>
       <button type="button" data-lentille="officiel" aria-pressed="false">La vérité officielle</button>
+      <button type="button" data-lentille="face" aria-pressed="false">L'alerte face à la vérité</button>
+    </fieldset>
+    <fieldset class="lentilles secondaires" aria-label="Autres regards">
+      <legend>Autres regards</legend>
+      <button type="button" data-lentille="modele" aria-pressed="false">Modèle BTS</button>
+      <button type="button" data-lentille="duree" aria-pressed="false">Durée</button>
+      <button type="button" data-lentille="horaire" aria-pressed="false">Horaire reconstitué</button>
     </fieldset>
   </div>
 </header>
@@ -47,13 +53,11 @@
     <nav class="onglets" role="tablist">
       <button role="tab" id="onglet-vol" aria-controls="volet-vol" aria-selected="true">Le vol</button>
       <button role="tab" id="onglet-jour" aria-controls="volet-jour" aria-selected="false">La journée</button>
-      <button role="tab" id="onglet-memoire" aria-controls="volet-memoire" aria-selected="false">Les chiffres du mémoire</button>
     </nav>
     <section id="volet-vol" role="tabpanel" aria-labelledby="onglet-vol" class="volet">
       <p class="vide">Cliquez sur un avion, ou cherchez un vol par son indicatif.</p>
     </section>
     <section id="volet-jour" role="tabpanel" aria-labelledby="onglet-jour" class="volet" hidden></section>
-    <section id="volet-memoire" role="tabpanel" aria-labelledby="onglet-memoire" class="volet" hidden></section>
   </aside>
 </main>
 
