@@ -193,3 +193,7 @@ select, input[type="search"], .recherche input {
 .plus[open] summary { margin-bottom: 8px; }
 .mesure + .mesure { margin-top: 12px; }
 .cas .pastille { display: inline-block; width: 12px; height: 12px; border-radius: 50%; }
+
+/* Lien vers le vol précédent du même avion */
+.lien { background: none; border: 0; padding: 0; font: inherit; color: var(--focus); text-decoration: underline; cursor: pointer; }
+.lentilles[hidden] { display: none; }

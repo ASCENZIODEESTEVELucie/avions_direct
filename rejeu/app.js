@@ -3,6 +3,10 @@
 'use strict';
 
 const $ = (id) => document.getElementById(id);
+/* Mode soutenance (par défaut) : seulement le modèle mondial et la vérité, sur les journées de sa période de test,
+   ouverture sur le 31 août. Ajouter ?complet à l'adresse pour retrouver tous les regards et toutes les journées. */
+const SOUTENANCE = !new URLSearchParams(location.search).has('complet');
+const JOUR_OUVERTURE = '2026-08-31';
 const ETATS_ENTRANT = {
   0: "c'est son premier vol de la journée",
   1: "l'avion qui arrive est au sol, à l'heure",
@@ -257,6 +261,20 @@ function choisirPres(pt) {
   if (mieux) choisir(mieux);
 }
 
+/* Le vol précédent du même avion ce jour-là : le dernier posé, avant ce décollage, à l'aéroport de départ */
+function volPrecedent(v) {
+  if (!v.etat_entrant) return null;
+  let best = null;
+  for (const x of etat.vols) {
+    if (x.immat === v.immat && x !== v && x.d === v.o && x.t_on <= v.t_off && (!best || x.t_on > best.t_on)) best = x;
+  }
+  return best;
+}
+/* Aller à un vol : on place l'horloge pendant son vol, puis on l'ouvre */
+function allerAuVol(v) {
+  if (etat.t < v.t_off || etat.t > v.t_on) { etat.t = (v.t_off + v.t_on) / 2; majTemps(); }
+  choisir(v);
+}
 function choisir(v) {
   etat.choisi = v;
   ouvrirOnglet('vol');
@@ -318,8 +336,9 @@ function afficherVol(v) {
     ? `<p class="vide">${mf === 'mondial' ? "Ce vol n'est pas dans l'archive ADS-B : pas de prédiction mondiale." : 'Pas de prédiction pour ce vol.'}</p>`
     : `${puce(bf, LENTILLES[mf])}
        ${jauge(probaF, 0, 1, seuilF, couleurDe(bf), 'probabilité ' + pct(probaF), 'seuil ' + pct(seuilF))}`;
+  const prec = volPrecedent(v);
   const entrant = `<dl class="faits">
-      <dt>L'avion qui arrive</dt><dd>${v.etat_entrant == null ? '—' : ETATS_ENTRANT[v.etat_entrant]}</dd>
+      <dt>L'avion qui arrive</dt><dd>${v.etat_entrant == null ? '—' : ETATS_ENTRANT[v.etat_entrant]}${prec ? ` <button type="button" class="lien" data-vol="${prec.id}">voir son vol ${prec.callsign} (${prec.o} → ${prec.d})</button>` : ''}</dd>
       <dt>Son retard connu</dt><dd>${v.retard_entrant_min == null ? '—' : signe(v.retard_entrant_min)}</dd>
       <dt>Marge prévue entre les deux vols</dt><dd>${v.marge_rotation_min == null ? '—' : v.marge_rotation_min + ' min'}</dd>
     </dl>`;
@@ -354,13 +373,14 @@ function afficherVol(v) {
         <dt>Cause déclarée</dt><dd>${v.cause || '—'}</dd></dl>
       ${bilan ? `<p class="bilan" style="border-color:${couleurs[c]}">${bilan}</p>` : ''}
     </section>
-    <details class="plus"><summary>Les autres regards sur ce vol</summary>
+    ${SOUTENANCE ? '' : `<details class="plus"><summary>Les autres regards sur ce vol</summary>
       <dl class="faits">
         ${mf === 'mondial' ? `<dt>Le modèle BTS, 1 h avant</dt><dd>${v.proba == null ? '—' : `${pct(v.proba)}, ${bm ? 'alerte' : "pas d'alerte"} (seuil ${pct(J.seuil_alerte)})`}</dd>` : ''}
         <dt>Ma méthode par la durée</dt><dd>${detailDuree}${bd == null ? '' : bd ? ' : anormalement long' : ' : durée normale'}</dd>
         <dt>L'horaire reconstitué</dt><dd>${detailHoraire}${bh == null ? '' : bh ? ' : en retard' : " : à l'heure"}</dd>
       </dl>
-    </details>`;
+    </details>`}`;
+  z.querySelectorAll('button[data-vol]').forEach((b) => b.addEventListener('click', () => allerAuVol(etat.vols[+b.dataset.vol])));
 }
 
 /* ── Le panneau : la journée ─────────────────────────────────────────────── */
@@ -388,13 +408,13 @@ function afficherJournee() {
       <p><span class="chiffre">${sur100(resM.precision)}</span> alertes sur 100 justes</p>
       ${mf === 'mondial' ? `<p>Sur les ${pct(r.mondial.couverture)} de vols retrouvés dans l'archive ADS-B, jamais vus pendant l'apprentissage.</p>` : ''}</div>` : ''}
     <ul class="cas">${['attrape', 'manque', 'fausse', 'calme'].map(ligne).join('')}</ul>
-    <details class="plus"><summary>Les autres regards et les chiffres du mémoire</summary>
+    ${SOUTENANCE ? '' : `<details class="plus"><summary>Les autres regards et les chiffres du mémoire</summary>
       <dl class="faits">${autres}</dl>
       ${etat.index ? `<ul class="memoire">${etat.index.chiffres_memoire.map((c) => `
         <li><div>${c.titre}</div><div class="valeur">${c.valeur}</div><div class="detail">${c.detail} (section ${c.section}).</div></li>`).join('')}</ul>` : ''}
       <p class="note">Rien de ce qui est affiché « avant le départ » ne vient du futur : le modèle BTS a appris ${periode(a.modele)} ;${a.modele_mondial ? ` le modèle mondial a appris ${periode(a.modele_mondial)} et choisi son seuil ${periode(a.seuil_mondial_choisi_sur)} ;` : ''} l'horaire ${periode(a.horaire)}.
         ${etat.index ? `Sources : ${etat.index.sources}.` : ''}</p>
-    </details>`;
+    </details>`}`;
 }
 
 function ouvrirOnglet(nom) {
@@ -417,11 +437,13 @@ async function demarrer() {
   $('recherche').addEventListener('submit', (e) => {
     e.preventDefault();
     const cs = $('champ-recherche').value.trim().toUpperCase();
-    const v = etat.vols.find((x) => x.callsign === cs);
-    if (!v) { $('champ-recherche').setCustomValidity(`Aucun vol ${cs} ce jour-là.`); $('champ-recherche').reportValidity(); return; }
+    // Un même indicatif peut voler plusieurs fois dans la journée : une nouvelle recherche passe au suivant
+    const tous = etat.vols.filter((x) => x.callsign === cs).sort((a, b) => a.t_off - b.t_off);
+    if (!tous.length) { $('champ-recherche').setCustomValidity(`Aucun vol ${cs} ce jour-là.`); $('champ-recherche').reportValidity(); return; }
     $('champ-recherche').setCustomValidity('');
-    if (etat.t < v.t_off || etat.t > v.t_on) { etat.t = (v.t_off + v.t_on) / 2; majTemps(); }
-    choisir(v);
+    const i = tous.indexOf(etat.choisi);
+    const v = i >= 0 ? tous[(i + 1) % tous.length] : (tous.find((x) => etat.t >= x.t_off && etat.t <= x.t_on) || tous[0]);
+    allerAuVol(v);
   });
   $('champ-recherche').addEventListener('input', () => $('champ-recherche').setCustomValidity(''));
   document.addEventListener('keydown', (e) => {
@@ -430,9 +452,14 @@ async function demarrer() {
   try {
     const index = await charger('donnees/index.json');
     etat.index = index;
-    $('choix-jour').replaceChildren(...index.jours.map((j) => Object.assign(document.createElement('option'), { value: j, textContent: j })));
+    // En soutenance : seulement les journées de test du modèle mondial (après le 27 août)
+    const jours = SOUTENANCE ? index.jours.filter((j) => j > '2026-08-27') : index.jours;
+    $('choix-jour').replaceChildren(...jours.map((j) => Object.assign(document.createElement('option'), { value: j, textContent: j })));
     $('choix-jour').addEventListener('change', (e) => chargerJour(e.target.value));
-    await chargerJour(index.jours[0]);
+    const premier = jours.includes(JOUR_OUVERTURE) ? JOUR_OUVERTURE : jours[0];
+    $('choix-jour').value = premier;
+    if (SOUTENANCE) document.querySelector('.lentilles.secondaires').hidden = true;
+    await chargerJour(premier);
   } catch (err) {
     const e = $('erreur');
     e.hidden = false;
